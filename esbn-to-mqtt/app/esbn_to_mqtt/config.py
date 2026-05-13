@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .logging import LOG_LEVELS
 from .models import AppConfig, EsbnCredentials, MqttConfig
 
 MPRN_PATTERN = re.compile(r"^\d{11}$")
@@ -35,6 +36,14 @@ def _env_int(key: str, default: str) -> int:
         return int(value)
     except ValueError as exc:
         raise ConfigError(f"{key} must be an integer") from exc
+
+
+def _log_level(options: dict[str, Any]) -> str:
+    value = _required_str(options, "log_level").lower()
+    if value not in LOG_LEVELS:
+        supported_levels = ", ".join(LOG_LEVELS)
+        raise ConfigError(f"log_level must be one of: {supported_levels}")
+    return value
 
 
 def load_config_dict(options: dict[str, Any]) -> AppConfig:
@@ -68,7 +77,7 @@ def load_config_dict(options: dict[str, Any]) -> AppConfig:
             topic_prefix=_required_str(options, "mqtt_topic_prefix"),
         ),
         poll_interval_hours=poll_interval_hours,
-        log_level=_required_str(options, "log_level"),
+        log_level=_log_level(options),
     )
 
 

@@ -42,6 +42,27 @@ def test_load_config_dict_rejects_missing_secret() -> None:
         load_config_dict(options)
 
 
+def test_load_config_dict_rejects_invalid_log_level() -> None:
+    options = valid_options()
+    options["log_level"] = "verbose"
+    with pytest.raises(ConfigError, match="log_level"):
+        load_config_dict(options)
+
+
+def test_load_env_config_rejects_invalid_log_level_env_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ESBN_USERNAME", "person@example.com")
+    monkeypatch.setenv("ESBN_PASSWORD", "secret")
+    monkeypatch.setenv("ESBN_MPRN", "10000000000")
+    monkeypatch.setenv("MQTT_USERNAME", "ha")
+    monkeypatch.setenv("MQTT_PASSWORD", "mqttpass")
+    monkeypatch.setenv("LOG_LEVEL", "verbose")
+
+    with pytest.raises(ConfigError, match="log_level"):
+        load_env_config()
+
+
 @pytest.mark.parametrize(
     ("env_key", "message"),
     [
