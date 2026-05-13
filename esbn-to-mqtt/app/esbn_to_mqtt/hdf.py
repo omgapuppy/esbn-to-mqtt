@@ -23,10 +23,29 @@ def _first_present(row: dict[str, str], names: tuple[str, ...]) -> str | None:
     return None
 
 
-def _parse_float(value: str | None) -> float | None:
+def _first_present_column_and_value(
+    row: dict[str, str], names: tuple[str, ...]
+) -> tuple[str, str] | tuple[None, None]:
+    for name in names:
+        value = row.get(name)
+        if value not in (None, ""):
+            return name, value
+    return None, None
+
+
+def _has_supported_column(fieldnames: list[str], names: tuple[str, ...]) -> bool:
+    return any(name in fieldnames for name in names)
+
+
+def _parse_float(value: str | None, column: str | None, line_num: int) -> float | None:
     if value is None or value.strip() == "":
         return None
-    return float(value.strip())
+    try:
+        return float(value.strip())
+    except ValueError as exc:
+        raise HdfParseError(
+            f"invalid numeric value in HDF CSV row {line_num}, column {column!r}: {value!r}"
+        ) from exc
 
 
 def _parse_end_time(value: str) -> datetime:
@@ -43,6 +62,13 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
     reader = csv.DictReader(StringIO(content.lstrip("\ufeff")))
     if not reader.fieldnames:
         raise HdfParseError("HDF CSV has no header row")
+    if not (
+        _has_supported_column(reader.fieldnames, IMPORT_COLUMNS)
+        or _has_supported_column(reader.fieldnames, EXPORT_COLUMNS)
+    ):
+        raise HdfParseError(
+            "HDF CSV is missing a supported import or export kWh column"
+        )
 
     readings: list[MeterReading] = []
     for row in reader:
@@ -50,8 +76,10 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
         if date_value is None:
             raise HdfParseError("HDF CSV is missing a supported date column")
 
-        import_kwh = _parse_float(_first_present(row, IMPORT_COLUMNS))
-        export_kwh = _parse_float(_first_present(row, EXPORT_COLUMNS))
+        import_column, import_value = _first_present_column_and_value(row, IMPORT_COLUMNS)
+        export_column, export_value = _first_present_column_and_value(row, EXPORT_COLUMNS)
+        import_kwh = _parse_float(import_value, import_column, reader.line_num)
+        export_kwh = _parse_float(export_value, export_column, reader.line_num)
         if import_kwh is None and export_kwh is None:
             continue
 
