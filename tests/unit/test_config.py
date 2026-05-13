@@ -1,6 +1,6 @@
 import pytest
 
-from esbn_to_mqtt.config import AppConfig, ConfigError, load_config_dict
+from esbn_to_mqtt.config import AppConfig, ConfigError, load_config_dict, load_env_config
 
 
 def valid_options() -> dict[str, object]:
@@ -40,3 +40,26 @@ def test_load_config_dict_rejects_missing_secret() -> None:
     options["esbn_password"] = ""
     with pytest.raises(ConfigError, match="esbn_password"):
         load_config_dict(options)
+
+
+@pytest.mark.parametrize(
+    ("env_key", "message"),
+    [
+        ("MQTT_PORT", "MQTT_PORT must be an integer"),
+        ("POLL_INTERVAL_HOURS", "POLL_INTERVAL_HOURS must be an integer"),
+    ],
+)
+def test_load_env_config_rejects_invalid_integer_env_values(
+    monkeypatch: pytest.MonkeyPatch,
+    env_key: str,
+    message: str,
+) -> None:
+    monkeypatch.setenv("ESBN_USERNAME", "person@example.com")
+    monkeypatch.setenv("ESBN_PASSWORD", "secret")
+    monkeypatch.setenv("ESBN_MPRN", "10000000000")
+    monkeypatch.setenv("MQTT_USERNAME", "ha")
+    monkeypatch.setenv("MQTT_PASSWORD", "mqttpass")
+    monkeypatch.setenv(env_key, "not-an-int")
+
+    with pytest.raises(ConfigError, match=message):
+        load_env_config()

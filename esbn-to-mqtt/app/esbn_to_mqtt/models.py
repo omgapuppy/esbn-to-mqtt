@@ -54,4 +54,7 @@ class MeterTotals:
     import_total_kwh: float
     export_total_kwh: float | None
     last_interval_start: datetime | None
-    processed_intervals: set[str] = field(default_factory=set)
+    processed_intervals: frozenset[str] = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "processed_intervals", frozenset(self.processed_intervals))

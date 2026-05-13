@@ -29,6 +29,14 @@ def _required_int(options: dict[str, Any], key: str) -> int:
     return value
 
 
+def _env_int(key: str, default: str) -> int:
+    value = os.environ.get(key, default)
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ConfigError(f"{key} must be an integer") from exc
+
+
 def load_config_dict(options: dict[str, Any]) -> AppConfig:
     try:
         mprn = _required_str(options, "mprn")
@@ -79,10 +87,10 @@ def load_env_config() -> AppConfig:
             "esbn_password": os.environ.get("ESBN_PASSWORD", ""),
             "mprn": os.environ.get("ESBN_MPRN", ""),
             "mqtt_host": os.environ.get("MQTT_HOST", "core-mosquitto"),
-            "mqtt_port": int(os.environ.get("MQTT_PORT", "1883")),
+            "mqtt_port": _env_int("MQTT_PORT", "1883"),
             "mqtt_username": os.environ.get("MQTT_USERNAME", ""),
             "mqtt_password": os.environ.get("MQTT_PASSWORD", ""),
-            "poll_interval_hours": int(os.environ.get("POLL_INTERVAL_HOURS", "6")),
+            "poll_interval_hours": _env_int("POLL_INTERVAL_HOURS", "6"),
             "mqtt_discovery_prefix": os.environ.get("MQTT_DISCOVERY_PREFIX", "homeassistant"),
             "mqtt_topic_prefix": os.environ.get("MQTT_TOPIC_PREFIX", "esbn_to_mqtt"),
             "log_level": os.environ.get("LOG_LEVEL", "info"),
