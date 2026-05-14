@@ -184,6 +184,36 @@ def test_run_once_raises_runtime_state_error_for_malformed_cached_state(
         main.run_once(options_path, tmp_path)
 
 
+def test_run_once_raises_runtime_state_error_for_structurally_invalid_cached_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    options_path = tmp_path / "options.json"
+    state_path = tmp_path / "state.json"
+    state_path.write_text('{"import_total_kwh": []}', encoding="utf-8")
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=app_config()))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+
+    with pytest.raises(main.RuntimeStateError, match="cached accumulator state"):
+        main.run_once(options_path, tmp_path)
+
+
+def test_run_once_rejects_existing_empty_cached_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    options_path = tmp_path / "options.json"
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=app_config()))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+
+    with pytest.raises(main.RuntimeStateError, match="not usable"):
+        main.run_once(options_path, tmp_path)
+
+
 def test_main_publishes_offline_after_malformed_cached_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

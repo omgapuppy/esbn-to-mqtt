@@ -24,6 +24,26 @@ def test_load_missing_path_returns_empty_state(tmp_path: Path) -> None:
     assert AccumulatorState.load(missing_path) == AccumulatorState.empty()
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"import_total_kwh": []},
+        {"export_total_kwh": {}},
+        {"last_interval_start": []},
+        {"last_interval_start": "not-a-date"},
+        {"processed_intervals": {}},
+        {"processed_intervals": [1]},
+    ],
+)
+def test_load_rejects_malformed_state_json_shapes(tmp_path: Path, payload: object) -> None:
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        AccumulatorState.load(path)
+
+
 def test_load_parses_export_last_interval_and_processed_intervals(tmp_path: Path) -> None:
     path = tmp_path / "state.json"
     path.write_text(

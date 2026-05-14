@@ -34,17 +34,32 @@ class AccumulatorState:
             return cls.empty()
 
         data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("state file must contain a JSON object")
         last_interval = data.get("last_interval_start")
-        return cls(
-            import_total_kwh=float(data.get("import_total_kwh", 0.0)),
-            export_total_kwh=(
-                None if data.get("export_total_kwh") is None else float(data["export_total_kwh"])
-            ),
-            last_interval_start=(
-                None if last_interval is None else datetime.fromisoformat(last_interval)
-            ),
-            processed_intervals=frozenset(data.get("processed_intervals", [])),
-        )
+        processed_intervals = data.get("processed_intervals", [])
+        if last_interval is not None and not isinstance(last_interval, str):
+            raise ValueError("state last_interval_start must be a string or null")
+        if not isinstance(processed_intervals, list) or not all(
+            isinstance(interval, str) for interval in processed_intervals
+        ):
+            raise ValueError("state processed_intervals must be a list of strings")
+
+        try:
+            return cls(
+                import_total_kwh=float(data.get("import_total_kwh", 0.0)),
+                export_total_kwh=(
+                    None
+                    if data.get("export_total_kwh") is None
+                    else float(data["export_total_kwh"])
+                ),
+                last_interval_start=(
+                    None if last_interval is None else datetime.fromisoformat(last_interval)
+                ),
+                processed_intervals=frozenset(processed_intervals),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("state file contained invalid accumulator values") from exc
 
     def apply(self, readings: list[MeterReading]) -> Self:
         import_total = self.import_total_kwh

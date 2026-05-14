@@ -27,6 +27,10 @@ class RuntimeStateError(RuntimeError):
     pass
 
 
+def _state_has_totals(state: AccumulatorState) -> bool:
+    return state.last_interval_start is not None and bool(state.processed_intervals)
+
+
 def _redaction_secrets(config: AppConfig) -> list[str]:
     return [
         config.esbn.username,
@@ -43,10 +47,13 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     LOGGER.info("starting esbn-to-mqtt for MPRN %s", mask_mprn(config.mprn))
 
     state_path = data_dir / "state.json"
+    state_exists = state_path.exists()
     try:
         accumulator = AccumulatorState.load(state_path)
     except (OSError, ValueError) as exc:
         raise RuntimeStateError("cached accumulator state could not be loaded") from exc
+    if state_exists and not _state_has_totals(accumulator):
+        raise RuntimeStateError("cached accumulator state was not usable")
     publisher = MqttPublisher(config.mqtt)
     client = EsbnClient(config.esbn)
 
@@ -76,7 +83,7 @@ def _has_usable_cached_state(data_dir: Path) -> bool:
         state = AccumulatorState.load(data_dir / "state.json")
     except (OSError, ValueError):
         return False
-    return state.last_interval_start is not None and bool(state.processed_intervals)
+    return _state_has_totals(state)
 
 
 def _publish_offline_if_no_cached_state(config: AppConfig, data_dir: Path) -> None:
