@@ -1,5 +1,5 @@
 name: esbn-to-mqtt
-version: "0.2.4"
+version: "0.2.5"
 slug: esbn_to_mqtt
 description: Publish ESB Networks smart meter HDF data to Home Assistant MQTT sensors
 url: https://github.com/omgapuppy/esbn-to-mqtt/tree/main/esbn-to-mqtt
@@ -9,7 +9,7 @@ arch:
 startup: application
 boot: auto
 init: false
-stage: experimental
+stage: stable
 services:
   - mqtt:need
 options:
