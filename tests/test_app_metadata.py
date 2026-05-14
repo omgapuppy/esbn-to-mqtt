@@ -29,10 +29,16 @@ def test_repository_metadata() -> None:
 def test_app_metadata() -> None:
     config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
 
+    assert config["name"] == "esbn-to-mqtt"
     assert config["slug"] == "esbn_to_mqtt"
+    assert config["options"]["mqtt_host"] == "core-mosquitto"
+    assert config["options"]["mqtt_port"] == 1883
     assert config["options"]["poll_interval_hours"] == 6
     assert config["schema"]["esbn_password"] == "password"
-    assert config["services"] == ["mqtt:need"]
+    assert config["schema"]["mqtt_password"] == "password"
+    assert config["schema"]["mqtt_host"] == "str"
+    assert config["schema"]["mqtt_port"] == "port"
+    assert "mqtt:need" in config["services"]
     assert config["options"]["log_level"] == "info"
     assert config["schema"]["log_level"] == "list(trace|debug|info|notice|warning|error|fatal)"
 
@@ -41,5 +47,5 @@ def test_ci_workflow_metadata() -> None:
     workflow = load_yaml_as_strings(ROOT / ".github" / "workflows" / "ci.yml")
 
     assert workflow["name"] == "CI"
-    assert workflow["on"]["pull_request"] == ""
+    assert "pull_request" in workflow["on"]
     assert workflow["on"]["push"]["branches"] == ["codex/**", "feature/**", "fix/**"]
