@@ -32,21 +32,29 @@ def _csv_response(content: str) -> httpx.Response:
 
 def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None:
     requests: list[httpx.Request] = []
+    login_root_gets = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal login_root_gets
         requests.append(request)
         url = str(request.url)
 
         if url == "https://myaccount.esbnetworks.ie/":
             assert request.method == "GET"
             assert request.headers["user-agent"].startswith("Mozilla/5.0")
-            return _html_response(
-                """
-                <html><head><script>
-                var SETTINGS = {"csrf":"csrf-token","transId":"trans-id"};
-                </script></head><body>ok</body></html>
-                """
-            )
+            if login_root_gets == 0:
+                login_root_gets += 1
+                return _html_response(
+                    """
+                    <html><head><script>
+                    var SETTINGS = {"csrf":"csrf-token","transId":"trans-id"};
+                    </script></head><body>ok</body></html>
+                    """
+                )
+            if login_root_gets == 1:
+                login_root_gets += 1
+                return _html_response("<html><body>portal</body></html>")
+            raise AssertionError("unexpected extra root GET")
 
         if url.startswith(
             "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
@@ -64,7 +72,7 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
         if url == (
             "https://login.esbnetworks.ie/"
             "esbntwkscustportalprdb2c01.onmicrosoft.com/"
-            "oauth2/v2.0/authorize/api/CombinedSigninAndSignup/confirmed"
+            "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
             "?csrf=csrf-token&tx=trans-id"
         ):
             assert request.method == "GET"
@@ -125,7 +133,7 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
         "B2C_1A_signup_signin/SelfAsserted?tx=trans-id&p=B2C_1A_signup_signin",
         "https://login.esbnetworks.ie/"
         "esbntwkscustportalprdb2c01.onmicrosoft.com/"
-        "oauth2/v2.0/authorize/api/CombinedSigninAndSignup/confirmed?csrf=csrf-token&tx=trans-id",
+        "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed?csrf=csrf-token&tx=trans-id",
         "https://login.esbnetworks.ie/continue",
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
@@ -198,5 +206,33 @@ def test_download_30_min_kwh_hdf_rejects_non_csv_download() -> None:
 
     client = EsbnClient(_credentials(), transport=httpx.MockTransport(handler))
     with pytest.raises(EsbnError, match="CSV"):
+        client.download_30_min_kwh_hdf()
+    client.close()
+
+
+def test_download_30_min_kwh_hdf_rejects_non_redirect_confirm_post() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == "https://myaccount.esbnetworks.ie/":
+            return _html_response(
+                '<html><script>var SETTINGS = '
+                '{"csrf":"csrf-token","transId":"trans-id"};</script></html>'
+            )
+        if "SelfAsserted" in url:
+            return _html_response("signed in")
+        if "confirmed" in url:
+            return _html_response(
+                '<html><form id="auto" action="https://login.esbnetworks.ie/continue">'
+                '<input name="state" value="state-token">'
+                '<input name="client_info" value="client-info-token">'
+                '<input name="code" value="code-token">'
+                "</form></html>"
+            )
+        if url == "https://login.esbnetworks.ie/continue":
+            return _html_response("<html><body>not redirected</body></html>")
+        raise AssertionError(f"unexpected request: {request.method} {url}")
+
+    client = EsbnClient(_credentials(), transport=httpx.MockTransport(handler))
+    with pytest.raises(EsbnAuthenticationError, match="confirmation form post failed"):
         client.download_30_min_kwh_hdf()
     client.close()

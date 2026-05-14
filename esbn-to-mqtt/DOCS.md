@@ -26,12 +26,12 @@ The app publishes MQTT discovery sensors that can be added to Home Assistant Ene
 
 ## Data Freshness
 
-Live ESBN download is still pending until it is implemented in Task 10, so this branch does not yet fetch fresh source data. Once that work lands, freshness will depend on when the source data becomes available and on the configured polling interval.
+The app now fetches live ESBN data during each poll. Freshness depends on the source portal exposing updated readings and on the configured polling interval, so new consumption values can still lag behind the meter by a few hours.
 
 ## Troubleshooting
 
-- If the app is still on this branch, live ESBN download is not expected yet; confirm Task 10 has been implemented before debugging freshness issues.
-- ESBN auth or CAPTCHA failures: verify the ESBN username and password in a browser session first, then retry.
+- ESBN auth failures usually mean the username or password is wrong, or the session was rejected by ESBN before the portal reached the download step.
+- CAPTCHA or challenge pages stop the login flow entirely; retry later and confirm the account can sign in manually in a browser.
 - Missing data: confirm the selected MPRN has data available and that the account can see the relevant meter history.
 - MQTT credential failures: verify `mqtt_host`, `mqtt_port`, `mqtt_username`, and `mqtt_password`, and confirm the broker is reachable from the app environment.
 - Stale data: check the polling interval and the app logs for failed fetch or publish attempts.

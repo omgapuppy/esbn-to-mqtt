@@ -24,7 +24,7 @@ SELF_ASSERTED_PATH = (
 )
 CONFIRMED_PATH = (
     "/esbntwkscustportalprdb2c01.onmicrosoft.com/"
-    "oauth2/v2.0/authorize/api/CombinedSigninAndSignup/confirmed"
+    "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
 )
 
 
@@ -134,7 +134,17 @@ class EsbnClient:
             data=values,
             follow_redirects=False,
         )
-        if response.status_code not in {200, 302, 303, 307, 308}:
+        if response.status_code not in {302, 303, 307, 308}:
+            raise EsbnAuthenticationError("ESBN confirmation form post failed")
+        location = response.headers.get("location")
+        if not isinstance(location, str) or not location:
+            raise EsbnAuthenticationError("ESBN confirmation form post failed")
+
+        resolved_location = response.request.url.join(httpx.URL(location))
+        if (
+            resolved_location.scheme != "https"
+            or resolved_location.host != "myaccount.esbnetworks.ie"
+        ):
             raise EsbnAuthenticationError("ESBN confirmation form post failed")
 
     def _load_xsrf_token(self) -> str:
