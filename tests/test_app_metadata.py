@@ -43,6 +43,15 @@ def test_app_metadata() -> None:
     assert config["schema"]["log_level"] == "list(trace|debug|info|notice|warning|error|fatal)"
 
 
+def test_app_build_metadata() -> None:
+    build = load_yaml(ROOT / "esbn-to-mqtt" / "build.yaml")
+
+    assert build["build_from"] == {
+        "aarch64": "ghcr.io/home-assistant/aarch64-base:3.22",
+        "amd64": "ghcr.io/home-assistant/amd64-base:3.22",
+    }
+
+
 def test_ci_workflow_metadata() -> None:
     workflow = load_yaml_as_strings(ROOT / ".github" / "workflows" / "ci.yml")
 

@@ -1,4 +1,5 @@
-FROM ghcr.io/home-assistant/base:3.20
+ARG BUILD_FROM=ghcr.io/home-assistant/base:latest
+FROM ${BUILD_FROM}
 
 ARG BUILD_VERSION=0.1.0
 ARG BUILD_ARCH=amd64
