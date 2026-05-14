@@ -93,6 +93,57 @@ def test_apply_sorts_by_timestamp_updates_latest_interval_and_rounds_totals() ->
     )
 
 
+def test_apply_only_adds_unseen_import_export_interval_ids() -> None:
+    initial_state = AccumulatorState.empty().apply(
+        [
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:15:00"),
+                import_kwh=1.2,
+                export_kwh=0.4,
+            ),
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:30:00"),
+                import_kwh=0.8,
+            ),
+        ]
+    )
+    reapplied_readings = [
+        MeterReading(
+            timestamp=datetime.fromisoformat("2024-01-02T00:15:00"),
+            import_kwh=1.2,
+            export_kwh=0.4,
+        ),
+        MeterReading(
+            timestamp=datetime.fromisoformat("2024-01-02T00:30:00"),
+            import_kwh=0.8,
+        ),
+        MeterReading(
+            timestamp=datetime.fromisoformat("2024-01-02T00:45:00"),
+            import_kwh=0.5,
+            export_kwh=0.25,
+        ),
+        MeterReading(
+            timestamp=datetime.fromisoformat("2024-01-02T00:45:00"),
+            import_kwh=0.5,
+            export_kwh=0.25,
+        ),
+    ]
+
+    state = initial_state.apply(reapplied_readings)
+
+    assert state.import_total_kwh == 2.5
+    assert state.export_total_kwh == 0.65
+    assert state.processed_intervals == frozenset(
+        {
+            "2024-01-02T00:15:00:import",
+            "2024-01-02T00:15:00:export",
+            "2024-01-02T00:30:00:import",
+            "2024-01-02T00:45:00:import",
+            "2024-01-02T00:45:00:export",
+        }
+    )
+
+
 def test_to_totals_returns_matching_meter_totals_with_immutable_processed_intervals() -> None:
     state = AccumulatorState(
         import_total_kwh=9.5,
