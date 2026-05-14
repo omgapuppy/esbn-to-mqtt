@@ -10,6 +10,8 @@ from .models import MeterReading
 DATE_COLUMNS = ("Read Date and End Time", "Read Date", "Date")
 IMPORT_COLUMNS = ("Import kWh", "Consumption kWh", "kWh", "Active Import kWh")
 EXPORT_COLUMNS = ("Export kWh", "Active Export kWh")
+READ_VALUE_COLUMN = "Read Value"
+READ_TYPE_COLUMN = "Read Type"
 
 
 class HdfParseError(ValueError):
@@ -36,6 +38,26 @@ def _first_present_column_and_value(
 
 def _has_supported_column(fieldnames: Sequence[str], names: Sequence[str]) -> bool:
     return any(name in fieldnames for name in names)
+
+
+def _has_long_read_type_columns(fieldnames: Sequence[str]) -> bool:
+    return READ_VALUE_COLUMN in fieldnames and READ_TYPE_COLUMN in fieldnames
+
+
+def _read_type_channels(row: dict[str, str]) -> tuple[str | None, str | None, str | None]:
+    read_value = row.get(READ_VALUE_COLUMN)
+    read_type = row.get(READ_TYPE_COLUMN)
+    if read_value is None or read_value == "" or read_type is None or read_type == "":
+        return None, None, read_type
+
+    normalized_type = read_type.lower()
+    if "kwh" not in normalized_type:
+        return None, None, read_type
+    if "import" in normalized_type:
+        return read_value, None, read_type
+    if "export" in normalized_type:
+        return None, read_value, read_type
+    return None, None, read_type
 
 
 def _parse_float(value: str | None, column: str | None, line_num: int) -> float | None:
@@ -66,6 +88,7 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
     if not (
         _has_supported_column(reader.fieldnames, IMPORT_COLUMNS)
         or _has_supported_column(reader.fieldnames, EXPORT_COLUMNS)
+        or _has_long_read_type_columns(reader.fieldnames)
     ):
         raise HdfParseError(
             "HDF CSV is missing a supported import or export kWh column"
@@ -79,6 +102,17 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
 
         import_column, import_value = _first_present_column_and_value(row, IMPORT_COLUMNS)
         export_column, export_value = _first_present_column_and_value(row, EXPORT_COLUMNS)
+        quality = row.get("Quality") or row.get("Read Quality")
+        if import_value is None and export_value is None:
+            long_import, long_export, read_type = _read_type_channels(row)
+            if long_import is not None:
+                import_column = READ_VALUE_COLUMN
+                import_value = long_import
+            if long_export is not None:
+                export_column = READ_VALUE_COLUMN
+                export_value = long_export
+            quality = quality or read_type
+
         import_kwh = _parse_float(import_value, import_column, reader.line_num)
         export_kwh = _parse_float(export_value, export_column, reader.line_num)
         if import_kwh is None and export_kwh is None:
@@ -89,7 +123,7 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
                 timestamp=_parse_end_time(date_value),
                 import_kwh=import_kwh,
                 export_kwh=export_kwh,
-                quality=row.get("Quality") or row.get("Read Quality"),
+                quality=quality,
             )
         )
 
