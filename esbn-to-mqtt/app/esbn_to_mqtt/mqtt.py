@@ -12,6 +12,12 @@ from .models import MeterTotals, MqttConfig
 
 APP_NAME = "esbn_to_mqtt"
 SOURCE_NAME = "esbn_to_mqtt"
+AVAILABILITY_ONLINE = "online"
+AVAILABILITY_OFFLINE = "offline"
+
+
+class MqttPublishError(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,13 @@ def state_topic(config: MqttConfig, mprn: str) -> str:
 
 def availability_topic(config: MqttConfig, mprn: str) -> str:
     return f"{config.topic_prefix}/{_hashed_meter_id(mprn)}/availability"
+
+
+def build_availability_message(config: MqttConfig, mprn: str, *, online: bool) -> MqttMessage:
+    return MqttMessage(
+        topic=availability_topic(config, mprn),
+        payload=AVAILABILITY_ONLINE if online else AVAILABILITY_OFFLINE,
+    )
 
 
 def _device_payload(mprn: str) -> dict[str, Any]:
@@ -104,13 +117,14 @@ def build_state_message(config: MqttConfig, mprn: str, totals: MeterTotals) -> M
 
 
 class MqttPublisher:
-    def __init__(self, config: MqttConfig) -> None:
+    def __init__(self, config: MqttConfig, client: Client | None = None) -> None:
         self._config = config
-        self._client = Client(callback_api_version=CallbackAPIVersion.VERSION2)
+        self._client = client or Client(callback_api_version=CallbackAPIVersion.VERSION2)
         self._client.username_pw_set(config.username, config.password)
 
     def publish_messages(self, messages: list[MqttMessage]) -> None:
         self._client.connect(self._config.host, self._config.port)
+        self._client.loop_start()
         try:
             for message in messages:
                 publish_result = self._client.publish(
@@ -119,6 +133,11 @@ class MqttPublisher:
                     qos=1,
                     retain=message.retain,
                 )
+                if publish_result.rc != 0:
+                    raise MqttPublishError(
+                        f"Failed to publish MQTT message to {message.topic}: rc={publish_result.rc}"
+                    )
                 publish_result.wait_for_publish()
         finally:
+            self._client.loop_stop()
             self._client.disconnect()

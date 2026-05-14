@@ -1,7 +1,16 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from esbn_to_mqtt.models import MeterTotals, MqttConfig
-from esbn_to_mqtt.mqtt import build_discovery_messages, build_state_message
+from esbn_to_mqtt.mqtt import (
+    MqttMessage,
+    MqttPublisher,
+    MqttPublishError,
+    build_availability_message,
+    build_discovery_messages,
+    build_state_message,
+)
 
 
 def mqtt_config() -> MqttConfig:
@@ -43,3 +52,50 @@ def test_build_state_message_contains_totals_and_timestamps() -> None:
     assert message.payload["source"] == "esbn_to_mqtt"
     assert "last_successful_fetch" in message.payload
     assert datetime.fromisoformat(message.payload["last_successful_fetch"])
+
+
+def test_build_availability_message_uses_retained_online_and_offline_payloads() -> None:
+    online_message = build_availability_message(mqtt_config(), "10000000000", online=True)
+    offline_message = build_availability_message(mqtt_config(), "10000000000", online=False)
+
+    assert online_message.topic.endswith("/availability")
+    assert online_message.retain is True
+    assert online_message.payload == "online"
+    assert offline_message.topic == online_message.topic
+    assert offline_message.retain is True
+    assert offline_message.payload == "offline"
+
+
+def test_mqtt_publisher_starts_loop_before_publish_and_cleans_up() -> None:
+    client = Mock()
+    client.publish.return_value = SimpleNamespace(rc=0, wait_for_publish=Mock())
+    publisher = MqttPublisher(mqtt_config(), client=client)
+    message = MqttMessage(topic="test/topic", payload="payload")
+
+    publisher.publish_messages([message])
+
+    client.username_pw_set.assert_called_once_with("ha", "secret")
+    client.connect.assert_called_once_with("core-mosquitto", 1883)
+    client.loop_start.assert_called_once_with()
+    client.publish.assert_called_once_with("test/topic", payload="payload", qos=1, retain=True)
+    client.publish.return_value.wait_for_publish.assert_called_once_with()
+    client.loop_stop.assert_called_once_with()
+    client.disconnect.assert_called_once_with()
+
+
+def test_mqtt_publisher_raises_on_publish_failure_after_connecting() -> None:
+    client = Mock()
+    client.publish.return_value = SimpleNamespace(rc=1, wait_for_publish=Mock())
+    publisher = MqttPublisher(mqtt_config(), client=client)
+
+    try:
+        publisher.publish_messages([MqttMessage(topic="test/topic", payload="payload")])
+    except MqttPublishError as exc:
+        assert "rc=1" in str(exc)
+    else:
+        raise AssertionError("Expected MqttPublishError")
+
+    client.loop_start.assert_called_once_with()
+    client.publish.return_value.wait_for_publish.assert_not_called()
+    client.loop_stop.assert_called_once_with()
+    client.disconnect.assert_called_once_with()
