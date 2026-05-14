@@ -210,7 +210,7 @@ def test_run_once_rejects_existing_empty_cached_state(
     monkeypatch.setattr(main, "load_options_file", Mock(return_value=app_config()))
     monkeypatch.setattr(main, "configure_logging", Mock())
 
-    with pytest.raises(main.RuntimeStateError, match="not usable"):
+    with pytest.raises(main.RuntimeStateError, match="cached accumulator state"):
         main.run_once(options_path, tmp_path)
 
 

@@ -28,6 +28,16 @@ def test_load_missing_path_returns_empty_state(tmp_path: Path) -> None:
     "payload",
     [
         [],
+        {},
+        {
+            "last_interval_start": "2024-01-02T03:30:00",
+            "processed_intervals": ["2024-01-02T03:00:00:import"],
+        },
+        {
+            "import_total_kwh": 12.5,
+            "last_interval_start": "2024-01-02T03:30:00",
+            "processed_intervals": ["2024-01-02T03:00:00:import"],
+        },
         {"import_total_kwh": []},
         {"export_total_kwh": {}},
         {"last_interval_start": []},

@@ -36,6 +36,10 @@ class AccumulatorState:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("state file must contain a JSON object")
+        if "import_total_kwh" not in data:
+            raise ValueError("state import_total_kwh is required")
+        if "export_total_kwh" not in data:
+            raise ValueError("state export_total_kwh is required")
         last_interval = data.get("last_interval_start")
         processed_intervals = data.get("processed_intervals", [])
         if last_interval is not None and not isinstance(last_interval, str):
@@ -47,7 +51,7 @@ class AccumulatorState:
 
         try:
             return cls(
-                import_total_kwh=float(data.get("import_total_kwh", 0.0)),
+                import_total_kwh=float(data["import_total_kwh"]),
                 export_total_kwh=(
                     None
                     if data.get("export_total_kwh") is None
