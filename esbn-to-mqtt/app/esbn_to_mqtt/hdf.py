@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 
@@ -24,16 +25,16 @@ def _first_present(row: dict[str, str], names: tuple[str, ...]) -> str | None:
 
 
 def _first_present_column_and_value(
-    row: dict[str, str], names: tuple[str, ...]
+    row: dict[str, str], names: Sequence[str]
 ) -> tuple[str, str] | tuple[None, None]:
     for name in names:
         value = row.get(name)
-        if value not in (None, ""):
+        if value is not None and value != "":
             return name, value
     return None, None
 
 
-def _has_supported_column(fieldnames: list[str], names: tuple[str, ...]) -> bool:
+def _has_supported_column(fieldnames: Sequence[str], names: Sequence[str]) -> bool:
     return any(name in fieldnames for name in names)
 
 

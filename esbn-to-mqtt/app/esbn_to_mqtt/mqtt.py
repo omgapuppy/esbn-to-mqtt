@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from paho.mqtt.client import CallbackAPIVersion, Client
+from paho.mqtt.client import Client
+from paho.mqtt.enums import CallbackAPIVersion
 
 from .logging import hash_mprn
 from .models import MeterTotals, MqttConfig

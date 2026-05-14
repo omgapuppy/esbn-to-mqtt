@@ -1,7 +1,6 @@
 import logging
 
 import pytest
-
 from esbn_to_mqtt.logging import hash_mprn, level_name_to_logging_level, mask_mprn, redact
 
 

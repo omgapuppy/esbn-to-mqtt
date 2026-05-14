@@ -1,5 +1,4 @@
 import pytest
-
 from esbn_to_mqtt.config import AppConfig, ConfigError, load_config_dict, load_env_config
 
 

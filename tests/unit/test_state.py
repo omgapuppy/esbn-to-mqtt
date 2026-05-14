@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-
 from esbn_to_mqtt.models import MeterReading, MeterTotals
 from esbn_to_mqtt.state import AccumulatorState
 
