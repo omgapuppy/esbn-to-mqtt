@@ -12,6 +12,7 @@ from .logging import configure_logging, mask_mprn, redact
 from .models import AppConfig
 from .mqtt import (
     MqttPublisher,
+    MqttPublishError,
     build_availability_message,
     build_discovery_messages,
     build_state_message,
@@ -19,6 +20,16 @@ from .mqtt import (
 from .state import AccumulatorState
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _redaction_secrets(config: AppConfig) -> list[str]:
+    return [
+        config.esbn.username,
+        config.esbn.password,
+        config.esbn.mprn,
+        config.mqtt.username,
+        config.mqtt.password,
+    ]
 
 
 def run_once(options_path: Path, data_dir: Path) -> AppConfig:
@@ -52,6 +63,13 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     return config
 
 
+def _publish_offline(config: AppConfig) -> None:
+    publisher = MqttPublisher(config.mqtt)
+    publisher.publish_messages(
+        [build_availability_message(config.mqtt, config.mprn, online=False)]
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--options", type=Path, default=Path("/data/options.json"))
@@ -62,16 +80,20 @@ def main() -> None:
     while True:
         try:
             config = run_once(args.options, args.data_dir)
-        except EsbnError as exc:
+        except (EsbnError, MqttPublishError) as exc:
             config = load_options_file(args.options)
             configure_logging(config.log_level)
             LOGGER.error(
-                "ESBN polling failed: %s",
-                redact(
-                    str(exc),
-                    [config.esbn.username, config.esbn.password, config.esbn.mprn],
-                ),
+                "polling cycle failed: %s",
+                redact(str(exc), _redaction_secrets(config)),
             )
+            try:
+                _publish_offline(config)
+            except MqttPublishError as publish_exc:
+                LOGGER.error(
+                    "failed to publish offline availability: %s",
+                    redact(str(publish_exc), _redaction_secrets(config)),
+                )
             if args.once:
                 break
         else:
