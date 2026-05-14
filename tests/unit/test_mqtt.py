@@ -35,7 +35,11 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
 
 def test_build_state_message_contains_totals_and_timestamps() -> None:
     message = build_state_message(mqtt_config(), "10000000000", totals())
+
     assert message.retain is True
     assert message.payload["import_total_kwh"] == 3.45
     assert message.payload["export_total_kwh"] == 1.25
     assert message.payload["last_interval_start"] == "2026-05-12T01:30:00+00:00"
+    assert message.payload["source"] == "esbn_to_mqtt"
+    assert "last_successful_fetch" in message.payload
+    assert datetime.fromisoformat(message.payload["last_successful_fetch"])
