@@ -11,7 +11,7 @@ from .logging import hash_mprn
 from .models import MeterTotals, MqttConfig
 
 APP_NAME = "esbn_to_mqtt"
-SOURCE_NAME = "esbn_to_mqtt"
+SOURCE_NAME = "esb_networks_hdf_30_min_kwh"
 AVAILABILITY_ONLINE = "online"
 AVAILABILITY_OFFLINE = "offline"
 
@@ -84,6 +84,19 @@ def _discovery_payload(config: MqttConfig, mprn: str, role: str, name: str) -> d
     }
 
 
+def _last_update_discovery_payload(config: MqttConfig, mprn: str) -> dict[str, Any]:
+    meter_id = _hashed_meter_id(mprn)
+    return {
+        "availability_topic": availability_topic(config, mprn),
+        "device": _device_payload(mprn),
+        "name": "ESBN Last Update",
+        "object_id": f"{APP_NAME}_{meter_id}_last_update",
+        "state_topic": state_topic(config, mprn),
+        "unique_id": f"{APP_NAME}_{meter_id}_last_update",
+        "value_template": "{{ value_json.last_successful_fetch }}",
+    }
+
+
 def build_discovery_messages(
     config: MqttConfig, mprn: str, *, include_export: bool
 ) -> list[MqttMessage]:
@@ -91,6 +104,10 @@ def build_discovery_messages(
         MqttMessage(
             topic=_discovery_topic(config, mprn, "import_total"),
             payload=_discovery_payload(config, mprn, "import_total", "ESBN Import Total"),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "last_update"),
+            payload=_last_update_discovery_payload(config, mprn),
         )
     ]
     if include_export:

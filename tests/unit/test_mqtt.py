@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from esbn_to_mqtt.logging import hash_mprn
 from esbn_to_mqtt.models import MeterTotals, MqttConfig
 from esbn_to_mqtt.mqtt import (
     MqttMessage,
@@ -33,6 +34,8 @@ def totals() -> MeterTotals:
 def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     messages = build_discovery_messages(mqtt_config(), "10000000000", include_export=True)
     import_message = next(message for message in messages if "import_total" in message.topic)
+    last_update_message = next(message for message in messages if "last_update" in message.topic)
+    meter_id = hash_mprn("10000000000")
 
     assert import_message.retain is True
     assert import_message.payload["device_class"] == "energy"
@@ -40,6 +43,23 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     assert import_message.payload["unit_of_measurement"] == "kWh"
     assert import_message.payload["availability_topic"].endswith("/availability")
     assert "10000000000" not in str(import_message.payload)
+    assert last_update_message.retain is True
+    assert last_update_message.topic == (
+        f"homeassistant/sensor/esbn_to_mqtt_{meter_id}/last_update/config"
+    )
+    assert (
+        last_update_message.payload["availability_topic"]
+        == import_message.payload["availability_topic"]
+    )
+    assert last_update_message.payload["state_topic"] == import_message.payload["state_topic"]
+    assert last_update_message.payload["device"] == import_message.payload["device"]
+    assert last_update_message.payload["object_id"] == f"esbn_to_mqtt_{meter_id}_last_update"
+    assert last_update_message.payload["unique_id"] == f"esbn_to_mqtt_{meter_id}_last_update"
+    assert last_update_message.payload["value_template"] == "{{ value_json.last_successful_fetch }}"
+    assert "device_class" not in last_update_message.payload
+    assert "state_class" not in last_update_message.payload
+    assert "unit_of_measurement" not in last_update_message.payload
+    assert "10000000000" not in str(last_update_message.payload)
 
 
 def test_build_state_message_contains_totals_and_timestamps() -> None:
@@ -49,7 +69,7 @@ def test_build_state_message_contains_totals_and_timestamps() -> None:
     assert message.payload["import_total_kwh"] == 3.45
     assert message.payload["export_total_kwh"] == 1.25
     assert message.payload["last_interval_start"] == "2026-05-12T01:30:00+00:00"
-    assert message.payload["source"] == "esbn_to_mqtt"
+    assert message.payload["source"] == "esb_networks_hdf_30_min_kwh"
     assert "last_successful_fetch" in message.payload
     assert datetime.fromisoformat(message.payload["last_successful_fetch"])
 
