@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import json
 import re
+from http.cookiejar import LoadError, MozillaCookieJar
 from io import StringIO
+from pathlib import Path
 
 import httpx
 from bs4 import BeautifulSoup
@@ -26,6 +28,9 @@ CONFIRMED_PATH = (
     "/esbntwkscustportalprdb2c01.onmicrosoft.com/"
     "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
 )
+CHALLENGE_MESSAGE = (
+    "ESBN requested browser verification; automated login paused until next configured poll"
+)
 
 
 class EsbnError(RuntimeError):
@@ -37,7 +42,9 @@ class EsbnAuthenticationError(EsbnError):
 
 
 class EsbnChallengeError(EsbnError):
-    pass
+    def __init__(self, message: str, *, retry_after_seconds: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 class EsbnClient:
@@ -45,30 +52,84 @@ class EsbnClient:
         self,
         credentials: EsbnCredentials,
         transport: httpx.BaseTransport | None = None,
+        cookie_jar_path: Path | None = None,
     ) -> None:
         self._credentials = credentials
         self._confirmed_html = ""
+        self._cookie_jar_path = cookie_jar_path
+        self._cookie_jar = MozillaCookieJar(
+            str(cookie_jar_path) if cookie_jar_path is not None else None
+        )
+        if cookie_jar_path is not None and cookie_jar_path.exists():
+            try:
+                self._cookie_jar.load(ignore_discard=True, ignore_expires=True)
+            except (LoadError, OSError):
+                self._cookie_jar.clear()
+
         self._client = httpx.Client(
             base_url=BASE_URL,
             follow_redirects=True,
             timeout=60.0,
             transport=transport,
             headers={"User-Agent": USER_AGENT},
+            cookies=self._cookie_jar,
         )
 
     def close(self) -> None:
         self._client.close()
 
     def download_30_min_kwh_hdf(self) -> str:
+        if (csv_content := self._download_with_existing_session()) is not None:
+            self._save_cookies()
+            return csv_content
+
         settings = self._load_settings()
         self._submit_credentials(settings["csrf"], settings["transId"])
         self._confirm_sign_in(settings["csrf"], settings["transId"])
         self._complete_form_post()
-        self._client.get(ROOT_URL)
+        csv_content = self._download_authenticated_hdf(refresh_root=True)
+        self._save_cookies()
+        return csv_content
+
+    def _download_with_existing_session(self) -> str | None:
+        if not any(self._cookie_jar):
+            return None
+
+        response = self._client.get(ROOT_URL)
+        self._ensure_success(response)
+        if self._is_login_response(response):
+            return None
+
+        try:
+            return self._download_authenticated_hdf(refresh_root=False)
+        except EsbnAuthenticationError:
+            return None
+
+    def _download_authenticated_hdf(self, *, refresh_root: bool) -> str:
+        if refresh_root:
+            self._ensure_success(self._client.get(ROOT_URL))
         self._client.get(f"{BASE_URL}/Api/HistoricConsumption")
         token = self._load_xsrf_token()
         csv_response = self._download_csv(token)
         return self._validate_csv(csv_response)
+
+    def _save_cookies(self) -> None:
+        if self._cookie_jar_path is None:
+            return
+        self._cookie_jar_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cookie_jar.save(
+            str(self._cookie_jar_path),
+            ignore_discard=True,
+            ignore_expires=True,
+        )
+        self._cookie_jar_path.chmod(0o600)
+
+    @staticmethod
+    def _is_login_response(response: httpx.Response) -> bool:
+        return (
+            response.url.host == "login.esbnetworks.ie"
+            or re.search(r"var SETTINGS\s*=", response.text) is not None
+        )
 
     def _load_settings(self) -> dict[str, str]:
         response = self._client.get(ROOT_URL)
@@ -117,7 +178,7 @@ class EsbnClient:
         self._ensure_success(response)
         body = response.text.lower()
         if "g-recaptcha-response" in body or "captcha.html" in body or "not a robot" in body:
-            raise EsbnChallengeError("ESBN sign in challenge detected")
+            raise EsbnChallengeError(CHALLENGE_MESSAGE)
         self._confirmed_html = response.text
 
     def _complete_form_post(self) -> None:

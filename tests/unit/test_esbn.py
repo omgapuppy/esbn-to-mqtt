@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from http.cookiejar import Cookie, MozillaCookieJar
+from pathlib import Path
 from urllib.parse import parse_qs
 
 import httpx
@@ -30,9 +32,38 @@ def _csv_response(content: str) -> httpx.Response:
     return httpx.Response(status_code=200, text=content, headers={"content-type": "text/csv"})
 
 
-def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None:
+def _write_session_cookie(path: Path) -> None:
+    jar = MozillaCookieJar(str(path))
+    jar.set_cookie(
+        Cookie(
+            version=0,
+            name="session",
+            value="abc",
+            port=None,
+            port_specified=False,
+            domain="myaccount.esbnetworks.ie",
+            domain_specified=True,
+            domain_initial_dot=False,
+            path="/",
+            path_specified=True,
+            secure=True,
+            expires=None,
+            discard=True,
+            comment=None,
+            comment_url=None,
+            rest={"HttpOnly": None},
+            rfc2109=False,
+        )
+    )
+    jar.save(ignore_discard=True, ignore_expires=True)
+
+
+def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
+    tmp_path: Path,
+) -> None:
     requests: list[httpx.Request] = []
     login_root_gets = 0
+    cookie_path = tmp_path / "esbn-cookies.txt"
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal login_root_gets
@@ -53,7 +84,14 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
                 )
             if login_root_gets == 1:
                 login_root_gets += 1
-                return _html_response("<html><body>portal</body></html>")
+                return httpx.Response(
+                    200,
+                    text="<html><body>portal</body></html>",
+                    headers={
+                        "content-type": "text/html",
+                        "set-cookie": "session=abc; Path=/; Secure; HttpOnly",
+                    },
+                )
             raise AssertionError("unexpected extra root GET")
 
         if url.startswith(
@@ -116,13 +154,18 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
 
         raise AssertionError(f"unexpected request: {request.method} {url}")
 
-    client = EsbnClient(_credentials(), transport=httpx.MockTransport(handler))
+    client = EsbnClient(
+        _credentials(),
+        transport=httpx.MockTransport(handler),
+        cookie_jar_path=cookie_path,
+    )
     try:
         csv_content = client.download_30_min_kwh_hdf()
     finally:
         client.close()
 
     assert csv_content.startswith("Read Date and End Time")
+    assert "session" in cookie_path.read_text(encoding="utf-8")
     assert [str(request.url) for request in requests] == [
         "https://myaccount.esbnetworks.ie/",
         "https://login.esbnetworks.ie/"
@@ -133,6 +176,48 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
         "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
         "?rememberMe=false&csrf_token=csrf-token&tx=trans-id&p=B2C_1A_signup_signin",
         "https://login.esbnetworks.ie/continue",
+        "https://myaccount.esbnetworks.ie/",
+        "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
+        "https://myaccount.esbnetworks.ie/af/t",
+        "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic",
+    ]
+
+
+def test_download_30_min_kwh_hdf_uses_persisted_session_cookie(
+    tmp_path: Path,
+) -> None:
+    requests: list[httpx.Request] = []
+    cookie_path = tmp_path / "esbn-cookies.txt"
+    _write_session_cookie(cookie_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        url = str(request.url)
+        if request.url.host == "login.esbnetworks.ie":
+            raise AssertionError("persisted session should avoid login")
+        if url == "https://myaccount.esbnetworks.ie/":
+            assert "session=abc" in request.headers.get("cookie", "")
+            return _html_response("<html><body>portal</body></html>")
+        if url == "https://myaccount.esbnetworks.ie/Api/HistoricConsumption":
+            return _html_response("<html><body>historic</body></html>")
+        if url == "https://myaccount.esbnetworks.ie/af/t":
+            return httpx.Response(200, json={"token": "xsrf-token"})
+        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+            return _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n")
+        raise AssertionError(f"unexpected request: {request.method} {url}")
+
+    client = EsbnClient(
+        _credentials(),
+        transport=httpx.MockTransport(handler),
+        cookie_jar_path=cookie_path,
+    )
+    try:
+        csv_content = client.download_30_min_kwh_hdf()
+    finally:
+        client.close()
+
+    assert csv_content.startswith("Read Date and End Time")
+    assert [str(request.url) for request in requests] == [
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
         "https://myaccount.esbnetworks.ie/af/t",
@@ -155,7 +240,7 @@ def test_download_30_min_kwh_hdf_raises_on_challenge_page() -> None:
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     client = EsbnClient(_credentials(), transport=httpx.MockTransport(handler))
-    with pytest.raises(EsbnChallengeError, match="challenge"):
+    with pytest.raises(EsbnChallengeError, match="browser verification"):
         client.download_30_min_kwh_hdf()
     client.close()
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .config import load_options_file
@@ -21,6 +23,8 @@ from .state import AccumulatorState
 
 LOGGER = logging.getLogger(__name__)
 ERROR_RETRY_BACKOFF_SECONDS = 15 * 60
+ESBN_COOKIE_FILE = "esbn-cookies.txt"
+ESBN_CHALLENGE_FILE = "esbn-challenge.json"
 
 
 class RuntimeStateError(RuntimeError):
@@ -41,10 +45,81 @@ def _redaction_secrets(config: AppConfig) -> list[str]:
     ]
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _challenge_path(data_dir: Path) -> Path:
+    return data_dir / ESBN_CHALLENGE_FILE
+
+
+def _cookie_jar_path(data_dir: Path) -> Path:
+    return data_dir / ESBN_COOKIE_FILE
+
+
+def _read_challenged_at(path: Path) -> datetime | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    challenged_at = data.get("challenged_at")
+    if not isinstance(challenged_at, str):
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(challenged_at)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _clear_challenge_cooldown(data_dir: Path) -> None:
+    try:
+        _challenge_path(data_dir).unlink()
+    except FileNotFoundError:
+        return
+
+
+def _record_challenge_cooldown(data_dir: Path) -> None:
+    path = _challenge_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"challenged_at": _utc_now().isoformat()}),
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
+
+
+def _raise_if_challenge_cooldown_active(config: AppConfig, data_dir: Path) -> None:
+    path = _challenge_path(data_dir)
+    challenged_at = _read_challenged_at(path)
+    if challenged_at is None:
+        _clear_challenge_cooldown(data_dir)
+        return
+
+    retry_at = challenged_at + timedelta(seconds=config.poll_interval_seconds)
+    now = _utc_now()
+    if now >= retry_at:
+        _clear_challenge_cooldown(data_dir)
+        return
+
+    retry_after_seconds = max(1, int((retry_at - now).total_seconds()))
+    raise EsbnChallengeError(
+        "ESBN requested browser verification; automated login paused until next poll",
+        retry_after_seconds=retry_after_seconds,
+    )
+
+
 def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     config = load_options_file(options_path)
     configure_logging(config.log_level)
     LOGGER.info("starting esbn-to-mqtt for MPRN %s", mask_mprn(config.mprn))
+    _raise_if_challenge_cooldown_active(config, data_dir)
 
     state_path = data_dir / "state.json"
     state_exists = state_path.exists()
@@ -55,7 +130,7 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     if state_exists and not _state_has_totals(accumulator):
         raise RuntimeStateError("cached accumulator state was not usable")
     publisher = MqttPublisher(config.mqtt)
-    client = EsbnClient(config.esbn)
+    client = EsbnClient(config.esbn, cookie_jar_path=_cookie_jar_path(data_dir))
 
     try:
         csv_content = client.download_30_min_kwh_hdf()
@@ -72,6 +147,7 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
         messages.append(build_state_message(config.mqtt, config.mprn, totals))
         messages.append(build_availability_message(config.mqtt, config.mprn, online=True))
         publisher.publish_messages(messages)
+        _clear_challenge_cooldown(data_dir)
     finally:
         client.close()
 
@@ -99,6 +175,8 @@ def _publish_offline_if_no_cached_state(config: AppConfig, data_dir: Path) -> No
 
 def _retry_sleep_seconds(exc: Exception, config: AppConfig) -> int:
     if isinstance(exc, EsbnChallengeError):
+        if exc.retry_after_seconds is not None:
+            return exc.retry_after_seconds
         return config.poll_interval_seconds
     return min(config.poll_interval_seconds, ERROR_RETRY_BACKOFF_SECONDS)
 
@@ -117,6 +195,11 @@ def main() -> None:
         except (EsbnError, HdfParseError, MqttPublishError, RuntimeStateError) as exc:
             config = load_options_file(args.options)
             configure_logging(config.log_level)
+            if (
+                isinstance(exc, EsbnChallengeError)
+                and exc.retry_after_seconds is None
+            ):
+                _record_challenge_cooldown(args.data_dir)
             LOGGER.error(
                 "polling cycle failed: %s",
                 redact(str(exc), _redaction_secrets(config)),
