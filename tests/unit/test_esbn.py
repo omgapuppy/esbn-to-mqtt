@@ -60,6 +60,7 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
             "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
         ) and "SelfAsserted" in url:
             assert request.method == "POST"
+            assert request.headers["x-csrf-token"] == "csrf-token"
             body = parse_qs(request.content.decode())
             assert body == {
                 "signInName": ["esbn-user"],
@@ -73,7 +74,7 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
             "https://login.esbnetworks.ie/"
             "esbntwkscustportalprdb2c01.onmicrosoft.com/"
             "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
-            "?csrf=csrf-token&tx=trans-id"
+            "?rememberMe=false&csrf_token=csrf-token&tx=trans-id&p=B2C_1A_signup_signin"
         ):
             assert request.method == "GET"
             return _html_response(
@@ -129,7 +130,8 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
         "B2C_1A_signup_signin/SelfAsserted?tx=trans-id&p=B2C_1A_signup_signin",
         "https://login.esbnetworks.ie/"
         "esbntwkscustportalprdb2c01.onmicrosoft.com/"
-        "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed?csrf=csrf-token&tx=trans-id",
+        "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
+        "?rememberMe=false&csrf_token=csrf-token&tx=trans-id&p=B2C_1A_signup_signin",
         "https://login.esbnetworks.ie/continue",
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",

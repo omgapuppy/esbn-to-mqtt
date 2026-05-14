@@ -74,7 +74,7 @@ def test_release_workflow_metadata() -> None:
     assert "github.event.pull_request.merged == true" in publish_job["if"]
     assert "contains(github.event.pull_request.labels.*.name, 'release')" in publish_job["if"]
     assert "version:" in workflow_text
-    assert "amd64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}" in workflow_text
-    assert "aarch64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}" in workflow_text
+    assert "amd64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" in workflow_text
+    assert "aarch64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" in workflow_text
     assert "gh release create" in workflow_text
     assert "--generate-notes" in workflow_text

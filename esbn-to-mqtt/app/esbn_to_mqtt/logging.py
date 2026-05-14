@@ -41,3 +41,4 @@ def configure_logging(level: str) -> None:
         level=level_name_to_logging_level(level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)

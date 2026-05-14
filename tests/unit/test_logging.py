@@ -1,7 +1,13 @@
 import logging
 
 import pytest
-from esbn_to_mqtt.logging import hash_mprn, level_name_to_logging_level, mask_mprn, redact
+from esbn_to_mqtt.logging import (
+    configure_logging,
+    hash_mprn,
+    level_name_to_logging_level,
+    mask_mprn,
+    redact,
+)
 
 
 def test_mask_mprn_keeps_only_last_three_digits() -> None:
@@ -39,3 +45,11 @@ def test_level_name_to_logging_level_maps_home_assistant_levels(
     logging_level: int,
 ) -> None:
     assert level_name_to_logging_level(level_name) == logging_level
+
+
+def test_configure_logging_suppresses_httpx_info_logs() -> None:
+    logging.getLogger("httpx").setLevel(logging.NOTSET)
+
+    configure_logging("info")
+
+    assert logging.getLogger("httpx").level == logging.WARNING

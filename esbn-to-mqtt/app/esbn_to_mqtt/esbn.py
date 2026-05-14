@@ -61,7 +61,7 @@ class EsbnClient:
 
     def download_30_min_kwh_hdf(self) -> str:
         settings = self._load_settings()
-        self._submit_credentials(settings["transId"])
+        self._submit_credentials(settings["csrf"], settings["transId"])
         self._confirm_sign_in(settings["csrf"], settings["transId"])
         self._complete_form_post()
         self._client.get(ROOT_URL)
@@ -87,7 +87,7 @@ class EsbnClient:
             raise EsbnAuthenticationError("ESBN settings missing csrf or transId")
         return {"csrf": csrf, "transId": trans_id}
 
-    def _submit_credentials(self, trans_id: str) -> None:
+    def _submit_credentials(self, csrf: str, trans_id: str) -> None:
         url = (
             f"{LOGIN_BASE_URL}{SELF_ASSERTED_PATH}"
             f"?tx={trans_id}&p=B2C_1A_signup_signin"
@@ -99,12 +99,21 @@ class EsbnClient:
                 "password": self._credentials.password,
                 "request_type": "RESPONSE",
             },
+            headers={"x-csrf-token": csrf},
+            follow_redirects=False,
         )
         self._ensure_success(response)
 
     def _confirm_sign_in(self, csrf: str, trans_id: str) -> None:
-        url = f"{LOGIN_BASE_URL}{CONFIRMED_PATH}?csrf={csrf}&tx={trans_id}"
-        response = self._client.get(url)
+        response = self._client.get(
+            f"{LOGIN_BASE_URL}{CONFIRMED_PATH}",
+            params={
+                "rememberMe": "false",
+                "csrf_token": csrf,
+                "tx": trans_id,
+                "p": "B2C_1A_signup_signin",
+            },
+        )
         self._ensure_success(response)
         body = response.text.lower()
         if "g-recaptcha-response" in body or "captcha.html" in body or "not a robot" in body:
