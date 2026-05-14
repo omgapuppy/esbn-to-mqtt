@@ -26,20 +26,18 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
 
-      - name: Read app version
-        id: app
+      - name: Read version
+        id: version
         run: |
           version="$(python3 - <<'PY'
           from pathlib import Path
-          import re
-
-          config = Path("esbn-to-mqtt/config.yaml").read_text(encoding="utf-8")
-          match = re.search(r'^version:\s*["'\'']?([^"'\''\n]+)["'\'']?\s*$', config, re.MULTILINE)
-          if not match:
-              raise SystemExit("Could not find version in esbn-to-mqtt/config.yaml")
-          print(match.group(1))
+          import yaml
+      
+          config = yaml.safe_load(Path("esbn-to-mqtt/config.yaml").read_text(encoding="utf-8"))
+          print(config["version"])
           PY
           )"
+      
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Check release tag does not exist
