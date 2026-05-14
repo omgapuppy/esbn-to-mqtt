@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .config import load_options_file
 from .esbn import EsbnClient, EsbnError
-from .hdf import parse_hdf_csv
+from .hdf import HdfParseError, parse_hdf_csv
 from .logging import configure_logging, mask_mprn, redact
 from .models import AppConfig
 from .mqtt import (
@@ -20,6 +20,7 @@ from .mqtt import (
 from .state import AccumulatorState
 
 LOGGER = logging.getLogger(__name__)
+ERROR_RETRY_BACKOFF_SECONDS = 15 * 60
 
 
 def _redaction_secrets(config: AppConfig) -> list[str]:
@@ -63,7 +64,19 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     return config
 
 
-def _publish_offline(config: AppConfig) -> None:
+def _has_usable_cached_state(data_dir: Path) -> bool:
+    try:
+        state = AccumulatorState.load(data_dir / "state.json")
+    except (OSError, ValueError):
+        return False
+    return state.last_interval_start is not None and bool(state.processed_intervals)
+
+
+def _publish_offline_if_no_cached_state(config: AppConfig, data_dir: Path) -> None:
+    if _has_usable_cached_state(data_dir):
+        LOGGER.warning("polling failed; keeping last known MQTT state available")
+        return
+
     publisher = MqttPublisher(config.mqtt)
     publisher.publish_messages(
         [build_availability_message(config.mqtt, config.mprn, online=False)]
@@ -78,9 +91,10 @@ def main() -> None:
     args = parser.parse_args()
 
     while True:
+        sleep_seconds = 0
         try:
             config = run_once(args.options, args.data_dir)
-        except (EsbnError, MqttPublishError) as exc:
+        except (EsbnError, HdfParseError, MqttPublishError) as exc:
             config = load_options_file(args.options)
             configure_logging(config.log_level)
             LOGGER.error(
@@ -88,7 +102,7 @@ def main() -> None:
                 redact(str(exc), _redaction_secrets(config)),
             )
             try:
-                _publish_offline(config)
+                _publish_offline_if_no_cached_state(config, args.data_dir)
             except MqttPublishError as publish_exc:
                 LOGGER.error(
                     "failed to publish offline availability: %s",
@@ -96,11 +110,13 @@ def main() -> None:
                 )
             if args.once:
                 break
+            sleep_seconds = min(config.poll_interval_seconds, ERROR_RETRY_BACKOFF_SECONDS)
         else:
             if args.once:
                 break
+            sleep_seconds = config.poll_interval_seconds
 
-        time.sleep(config.poll_interval_seconds)
+        time.sleep(sleep_seconds)
 
 
 if __name__ == "__main__":
