@@ -96,10 +96,6 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow() -> None
             )
             return httpx.Response(302, headers={"location": "https://myaccount.esbnetworks.ie/"})
 
-        if url == "https://myaccount.esbnetworks.ie/":
-            assert request.method == "GET"
-            return _html_response("<html><body>portal</body></html>")
-
         if url == "https://myaccount.esbnetworks.ie/Api/HistoricConsumption":
             assert request.method == "GET"
             return _html_response("<html><body>historic</body></html>")
