@@ -191,3 +191,25 @@ def test_save_creates_parent_directories_and_writes_pretty_sorted_json(tmp_path:
         "  ]\n"
         "}\n"
     )
+
+
+def test_save_and_load_round_trip_preserves_accumulator_state(tmp_path: Path) -> None:
+    path = tmp_path / "state.json"
+    state = AccumulatorState(
+        import_total_kwh=8.75,
+        export_total_kwh=1.5,
+        last_interval_start=datetime.fromisoformat("2024-01-02T00:30:00"),
+        processed_intervals={
+            "2024-01-02T00:30:00:import",
+            "2024-01-02T00:45:00:export",
+        },
+    )
+
+    state.save(path)
+
+    loaded_state = AccumulatorState.load(path)
+
+    assert loaded_state.import_total_kwh == state.import_total_kwh
+    assert loaded_state.export_total_kwh == state.export_total_kwh
+    assert loaded_state.last_interval_start == state.last_interval_start
+    assert loaded_state.processed_intervals == state.processed_intervals
