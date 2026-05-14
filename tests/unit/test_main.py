@@ -167,3 +167,50 @@ def test_main_uses_bounded_backoff_after_transient_runtime_error(
         main.main()
 
     sleep.assert_called_once_with(main.ERROR_RETRY_BACKOFF_SECONDS)
+
+
+def test_run_once_raises_runtime_state_error_for_malformed_cached_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    options_path = tmp_path / "options.json"
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{bad json", encoding="utf-8")
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=app_config()))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+
+    with pytest.raises(main.RuntimeStateError, match="cached accumulator state"):
+        main.run_once(options_path, tmp_path)
+
+
+def test_main_publishes_offline_after_malformed_cached_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = app_config()
+    published_messages: list[list[MqttMessage]] = []
+
+    class FakePublisher:
+        def __init__(self, mqtt_config: MqttConfig) -> None:
+            self.mqtt_config = mqtt_config
+
+        def publish_messages(self, messages: list[MqttMessage]) -> None:
+            published_messages.append(messages)
+
+    monkeypatch.setattr(sys, "argv", ["prog", "--once", "--data-dir", str(tmp_path)])
+    monkeypatch.setattr(
+        main,
+        "run_once",
+        Mock(side_effect=main.RuntimeStateError("cached accumulator state could not be loaded")),
+    )
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", FakePublisher)
+    monkeypatch.setattr(main.time, "sleep", Mock())
+
+    main.main()
+
+    assert published_messages == [
+        [build_availability_message(config.mqtt, config.mprn, online=False)]
+    ]

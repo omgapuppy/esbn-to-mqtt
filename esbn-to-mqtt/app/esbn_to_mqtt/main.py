@@ -23,6 +23,10 @@ LOGGER = logging.getLogger(__name__)
 ERROR_RETRY_BACKOFF_SECONDS = 15 * 60
 
 
+class RuntimeStateError(RuntimeError):
+    pass
+
+
 def _redaction_secrets(config: AppConfig) -> list[str]:
     return [
         config.esbn.username,
@@ -39,7 +43,10 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     LOGGER.info("starting esbn-to-mqtt for MPRN %s", mask_mprn(config.mprn))
 
     state_path = data_dir / "state.json"
-    accumulator = AccumulatorState.load(state_path)
+    try:
+        accumulator = AccumulatorState.load(state_path)
+    except (OSError, ValueError) as exc:
+        raise RuntimeStateError("cached accumulator state could not be loaded") from exc
     publisher = MqttPublisher(config.mqtt)
     client = EsbnClient(config.esbn)
 
@@ -94,7 +101,7 @@ def main() -> None:
         sleep_seconds = 0
         try:
             config = run_once(args.options, args.data_dir)
-        except (EsbnError, HdfParseError, MqttPublishError) as exc:
+        except (EsbnError, HdfParseError, MqttPublishError, RuntimeStateError) as exc:
             config = load_options_file(args.options)
             configure_logging(config.log_level)
             LOGGER.error(
