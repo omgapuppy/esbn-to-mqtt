@@ -38,7 +38,7 @@ def test_app_metadata() -> None:
     config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
 
     assert config["name"] == "esbn-to-mqtt"
-    assert config["version"] == "0.2.3"
+    assert config["version"] == "0.2.4"
     assert config["slug"] == "esbn_to_mqtt"
     assert config["options"]["mqtt_host"] == "core-mosquitto"
     assert config["options"]["mqtt_port"] == 1883
