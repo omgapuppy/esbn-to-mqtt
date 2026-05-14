@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_OWNER: omgapuppy
+      IMAGE_NAME: esbn-to-mqtt
+    steps:
+      - name: Check out merged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Read app version
+        id: app
+        run: |
+          version="$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          config = Path("esbn-to-mqtt/config.yaml").read_text(encoding="utf-8")
+          match = re.search(r'^version:\s*["'\'']?([^"'\''\n]+)["'\'']?\s*$', config, re.MULTILINE)
+          if not match:
+              raise SystemExit("Could not find version in esbn-to-mqtt/config.yaml")
+          print(match.group(1))
+          PY
+          )"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check release tag does not exist
+        run: |
+          git fetch --tags origin
+          if git rev-parse --verify --quiet "refs/tags/${{ steps.app.outputs.version }}"; then
+            echo "Tag ${{ steps.app.outputs.version }} already exists" >&2
+            exit 1
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: esbn-to-mqtt
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/amd64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22
+            BUILD_ARCH=amd64
+            BUILD_VERSION=${{ steps.app.outputs.version }}
+
+      - name: Build and publish aarch64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: esbn-to-mqtt
+          push: true
+          platforms: linux/arm64
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/aarch64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.22
+            BUILD_ARCH=aarch64
+            BUILD_VERSION=${{ steps.app.outputs.version }}
+
+      - name: Create git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.app.outputs.version }}" "${{ github.event.pull_request.merge_commit_sha }}"
+          git push origin "${{ steps.app.outputs.version }}"
+
+      - name: Create GitHub release with generated notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.app.outputs.version }}" \
+            --target "${{ github.event.pull_request.merge_commit_sha }}" \
+            --title "${{ steps.app.outputs.version }}" \
+            --generate-notes

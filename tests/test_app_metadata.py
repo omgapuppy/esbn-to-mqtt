@@ -30,6 +30,7 @@ def test_app_metadata() -> None:
     config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
 
     assert config["name"] == "esbn-to-mqtt"
+    assert config["version"] == "0.2.0"
     assert config["slug"] == "esbn_to_mqtt"
     assert config["options"]["mqtt_host"] == "core-mosquitto"
     assert config["options"]["mqtt_port"] == 1883
@@ -58,3 +59,22 @@ def test_ci_workflow_metadata() -> None:
     assert workflow["name"] == "CI"
     assert "pull_request" in workflow["on"]
     assert workflow["on"]["push"]["branches"] == ["codex/**", "feature/**", "fix/**"]
+
+
+def test_release_workflow_metadata() -> None:
+    workflow = load_yaml_as_strings(ROOT / ".github" / "workflows" / "release.yml")
+    publish_job = workflow["jobs"]["publish"]
+    workflow_text = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert workflow["name"] == "Release"
+    assert workflow["on"]["pull_request"]["types"] == ["closed"]
+    assert workflow["permissions"] == {"contents": "write", "packages": "write"}
+    assert "github.event.pull_request.merged == true" in publish_job["if"]
+    assert "contains(github.event.pull_request.labels.*.name, 'release')" in publish_job["if"]
+    assert "version:" in workflow_text
+    assert "amd64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}" in workflow_text
+    assert "aarch64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}" in workflow_text
+    assert "gh release create" in workflow_text
+    assert "--generate-notes" in workflow_text
