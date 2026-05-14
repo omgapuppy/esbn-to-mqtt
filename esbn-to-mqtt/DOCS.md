@@ -31,7 +31,7 @@ The app now fetches live ESBN data during each poll. Freshness depends on the so
 ## Troubleshooting
 
 - ESBN auth failures usually mean the username or password is wrong, or the session was rejected by ESBN before the portal reached the download step.
-- CAPTCHA or challenge pages stop the login flow entirely; retry later and confirm the account can sign in manually in a browser.
+- CAPTCHA or challenge pages stop the login flow entirely. When ESBN asks for a browser challenge, the app backs off until the next configured poll instead of retrying every few minutes. Retry later, or sign in manually in a browser to confirm the account is usable.
 - Missing data: confirm the selected MPRN has data available and that the account can see the relevant meter history.
 - MQTT credential failures: verify `mqtt_host`, `mqtt_port`, `mqtt_username`, and `mqtt_password`, and confirm the broker is reachable from the app environment.
 - Stale data: check the polling interval and the app logs for failed fetch or publish attempts.

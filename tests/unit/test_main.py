@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from esbn_to_mqtt import main
-from esbn_to_mqtt.esbn import EsbnError
+from esbn_to_mqtt.esbn import EsbnChallengeError, EsbnError
 from esbn_to_mqtt.hdf import HdfParseError
 from esbn_to_mqtt.models import AppConfig, EsbnCredentials, MqttConfig
 from esbn_to_mqtt.mqtt import MqttMessage, MqttPublishError, build_availability_message
@@ -167,6 +167,29 @@ def test_main_uses_bounded_backoff_after_transient_runtime_error(
         main.main()
 
     sleep.assert_called_once_with(main.ERROR_RETRY_BACKOFF_SECONDS)
+
+
+def test_main_uses_poll_interval_backoff_after_esbn_challenge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = app_config()
+    sleep = Mock(side_effect=KeyboardInterrupt)
+
+    monkeypatch.setattr(sys, "argv", ["prog"])
+    monkeypatch.setattr(
+        main,
+        "run_once",
+        Mock(side_effect=EsbnChallengeError("ESBN sign in challenge detected")),
+    )
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "_publish_offline_if_no_cached_state", Mock())
+    monkeypatch.setattr(main.time, "sleep", sleep)
+
+    with pytest.raises(KeyboardInterrupt):
+        main.main()
+
+    sleep.assert_called_once_with(config.poll_interval_seconds)
 
 
 def test_run_once_raises_runtime_state_error_for_malformed_cached_state(

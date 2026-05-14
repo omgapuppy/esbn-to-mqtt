@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from .config import load_options_file
-from .esbn import EsbnClient, EsbnError
+from .esbn import EsbnChallengeError, EsbnClient, EsbnError
 from .hdf import HdfParseError, parse_hdf_csv
 from .logging import configure_logging, mask_mprn, redact
 from .models import AppConfig
@@ -97,6 +97,12 @@ def _publish_offline_if_no_cached_state(config: AppConfig, data_dir: Path) -> No
     )
 
 
+def _retry_sleep_seconds(exc: Exception, config: AppConfig) -> int:
+    if isinstance(exc, EsbnChallengeError):
+        return config.poll_interval_seconds
+    return min(config.poll_interval_seconds, ERROR_RETRY_BACKOFF_SECONDS)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--options", type=Path, default=Path("/data/options.json"))
@@ -124,7 +130,7 @@ def main() -> None:
                 )
             if args.once:
                 break
-            sleep_seconds = min(config.poll_interval_seconds, ERROR_RETRY_BACKOFF_SECONDS)
+            sleep_seconds = _retry_sleep_seconds(exc, config)
         else:
             if args.once:
                 break
