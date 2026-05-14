@@ -15,10 +15,12 @@ jobs:
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
+
     env:
       REGISTRY: ghcr.io
       IMAGE_OWNER: omgapuppy
       IMAGE_NAME: esbn-to-mqtt
+
     steps:
       - name: Check out merged commit
         uses: actions/checkout@v4
@@ -31,20 +33,36 @@ jobs:
         run: |
           version="$(python3 - <<'PY'
           from pathlib import Path
-          import yaml
-      
-          config = yaml.safe_load(Path("esbn-to-mqtt/config.yaml").read_text(encoding="utf-8"))
-          print(config["version"])
+          import re
+
+          config = Path("esbn-to-mqtt/config.yaml").read_text(encoding="utf-8")
+          match = re.search(r"^version:\s*[\"']?([^\"'\n]+)[\"']?\s*$", config, re.MULTILINE)
+
+          if not match:
+              raise SystemExit("Could not find version in esbn-to-mqtt/config.yaml")
+
+          print(match.group(1))
           PY
           )"
-      
+
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "Read version: ${version}"
+
+      - name: Validate version
+        run: |
+          test -n "${{ steps.version.outputs.version }}" || {
+            echo "Version output is empty" >&2
+            exit 1
+          }
+
+          echo "Release version: ${{ steps.version.outputs.version }}"
 
       - name: Check release tag does not exist
         run: |
           git fetch --tags origin
-          if git rev-parse --verify --quiet "refs/tags/${{ steps.app.outputs.version }}"; then
-            echo "Tag ${{ steps.app.outputs.version }} already exists" >&2
+
+          if git rev-parse --verify --quiet "refs/tags/${{ steps.version.outputs.version }}"; then
+            echo "Tag ${{ steps.version.outputs.version }} already exists" >&2
             exit 1
           fi
 
@@ -67,11 +85,11 @@ jobs:
           context: esbn-to-mqtt
           push: true
           platforms: linux/amd64
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/amd64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/amd64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22
             BUILD_ARCH=amd64
-            BUILD_VERSION=${{ steps.app.outputs.version }}
+            BUILD_VERSION=${{ steps.version.outputs.version }}
 
       - name: Build and publish aarch64 image
         uses: docker/build-push-action@v6
@@ -79,24 +97,25 @@ jobs:
           context: esbn-to-mqtt
           push: true
           platforms: linux/arm64
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/aarch64-${{ env.IMAGE_NAME }}:${{ steps.app.outputs.version }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/aarch64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.22
             BUILD_ARCH=aarch64
-            BUILD_VERSION=${{ steps.app.outputs.version }}
+            BUILD_VERSION=${{ steps.version.outputs.version }}
 
       - name: Create git tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "${{ steps.app.outputs.version }}" "${{ github.event.pull_request.merge_commit_sha }}"
-          git push origin "${{ steps.app.outputs.version }}"
+
+          git tag "${{ steps.version.outputs.version }}" "${{ github.event.pull_request.merge_commit_sha }}"
+          git push origin "${{ steps.version.outputs.version }}"
 
       - name: Create GitHub release with generated notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.app.outputs.version }}" \
+          gh release create "${{ steps.version.outputs.version }}" \
             --target "${{ github.event.pull_request.merge_commit_sha }}" \
-            --title "${{ steps.app.outputs.version }}" \
+            --title "${{ steps.version.outputs.version }}" \
             --generate-notes
