@@ -1,6 +1,6 @@
 # esbn-to-mqtt
 
-`esbn-to-mqtt` is an unofficial Home Assistant app scaffold with an MQTT discovery pipeline for the Home Assistant Energy dashboard. Live ESBN download is still pending in development and will land in Task 10.
+`esbn-to-mqtt` is an unofficial Home Assistant app that downloads ESB Networks HDF smart meter data, parses import and export interval kWh readings, and publishes MQTT discovery sensors for the Home Assistant Energy dashboard.
 
 This is not a HACS integration and is not affiliated with, endorsed by, or connected to ESB Networks.
 
