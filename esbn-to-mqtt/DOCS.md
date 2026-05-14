@@ -25,10 +25,11 @@ The app publishes MQTT discovery sensors that can be added to Home Assistant Ene
 
 ## Data Freshness
 
-ESB Networks data is not real-time. Freshness depends on when the source data becomes available and on the configured polling interval.
+Live ESBN download is still pending until it is implemented in Task 10, so this branch does not yet fetch fresh source data. Once that work lands, freshness will depend on when the source data becomes available and on the configured polling interval.
 
 ## Troubleshooting
 
+- If the app is still on this branch, live ESBN download is not expected yet; confirm Task 10 has been implemented before debugging freshness issues.
 - ESBN auth or CAPTCHA failures: verify the ESBN username and password in a browser session first, then retry.
 - Missing data: confirm the selected MPRN has data available and that the account can see the relevant meter history.
 - MQTT credential failures: verify `mqtt_host`, `mqtt_port`, `mqtt_username`, and `mqtt_password`, and confirm the broker is reachable from the app environment.
