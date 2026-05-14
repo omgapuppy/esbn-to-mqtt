@@ -14,6 +14,7 @@ Configure these settings in the app:
 - `poll_interval_hours` - default `6`
 - `mqtt_discovery_prefix` - default `homeassistant`
 - `mqtt_topic_prefix` - default `esbn_to_mqtt`
+- `log_level` - default `info`; accepted values `trace`, `debug`, `info`, `notice`, `warning`, `error`, `fatal`
 
 ## Energy Dashboard Setup
 
