@@ -88,6 +88,7 @@ def test_build_availability_message_uses_retained_online_and_offline_payloads() 
 
 def test_mqtt_publisher_starts_loop_before_publish_and_cleans_up() -> None:
     client = Mock()
+    client.connect.return_value = 0
     client.publish.return_value = SimpleNamespace(rc=0, wait_for_publish=Mock())
     publisher = MqttPublisher(mqtt_config(), client=client)
     message = MqttMessage(topic="test/topic", payload="payload")
@@ -103,8 +104,58 @@ def test_mqtt_publisher_starts_loop_before_publish_and_cleans_up() -> None:
     client.disconnect.assert_called_once_with()
 
 
+def test_mqtt_publisher_checks_connection_without_publishing() -> None:
+    client = Mock()
+    client.connect.return_value = 0
+    client.loop_start.side_effect = lambda: client.on_connect(client, None, None, 0, None)
+    publisher = MqttPublisher(mqtt_config(), client=client)
+
+    publisher.check_connection()
+
+    client.connect.assert_called_once_with("core-mosquitto", 1883)
+    client.loop_start.assert_called_once_with()
+    client.loop_stop.assert_called_once_with()
+    client.disconnect.assert_called_once_with()
+    client.publish.assert_not_called()
+
+
+def test_mqtt_publisher_raises_on_connection_failure() -> None:
+    client = Mock()
+    client.connect.return_value = 5
+    publisher = MqttPublisher(mqtt_config(), client=client)
+
+    try:
+        publisher.check_connection()
+    except MqttPublishError as exc:
+        assert "MQTT broker" in str(exc)
+        assert "rc=5" in str(exc)
+    else:
+        raise AssertionError("Expected MqttPublishError")
+
+    client.disconnect.assert_not_called()
+
+
+def test_mqtt_publisher_raises_when_broker_rejects_connection() -> None:
+    client = Mock()
+    client.connect.return_value = 0
+    client.loop_start.side_effect = lambda: client.on_connect(client, None, None, 5, None)
+    publisher = MqttPublisher(mqtt_config(), client=client)
+
+    try:
+        publisher.check_connection()
+    except MqttPublishError as exc:
+        assert "rejected" in str(exc)
+        assert "rc=5" in str(exc)
+    else:
+        raise AssertionError("Expected MqttPublishError")
+
+    client.loop_stop.assert_called_once_with()
+    client.disconnect.assert_called_once_with()
+
+
 def test_mqtt_publisher_raises_on_publish_failure_after_connecting() -> None:
     client = Mock()
+    client.connect.return_value = 0
     client.publish.return_value = SimpleNamespace(rc=1, wait_for_publish=Mock())
     publisher = MqttPublisher(mqtt_config(), client=client)
 

@@ -119,8 +119,19 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     config = load_options_file(options_path)
     configure_logging(config.log_level)
     LOGGER.info("starting esbn-to-mqtt for MPRN %s", mask_mprn(config.mprn))
-    _raise_if_challenge_cooldown_active(config, data_dir)
+    publisher = MqttPublisher(config.mqtt)
+    try:
+        publisher.check_connection()
+    except MqttPublishError:
+        LOGGER.error(
+            "MQTT connection check failed for %s:%s",
+            config.mqtt.host,
+            config.mqtt.port,
+        )
+        raise
+    LOGGER.info("MQTT connection check succeeded for %s:%s", config.mqtt.host, config.mqtt.port)
 
+    _raise_if_challenge_cooldown_active(config, data_dir)
     state_path = data_dir / "state.json"
     state_exists = state_path.exists()
     try:
@@ -129,7 +140,6 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
         raise RuntimeStateError("cached accumulator state could not be loaded") from exc
     if state_exists and not _state_has_totals(accumulator):
         raise RuntimeStateError("cached accumulator state was not usable")
-    publisher = MqttPublisher(config.mqtt)
     client = EsbnClient(config.esbn, cookie_jar_path=_cookie_jar_path(data_dir))
 
     try:

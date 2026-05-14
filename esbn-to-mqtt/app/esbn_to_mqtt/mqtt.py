@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from threading import Event
+from typing import Any, cast
 
 from paho.mqtt.client import Client
 from paho.mqtt.enums import CallbackAPIVersion
@@ -15,6 +17,7 @@ APP_NAME = "esbn_to_mqtt"
 SOURCE_NAME = "esb_networks_hdf_30_min_kwh"
 AVAILABILITY_ONLINE = "online"
 AVAILABILITY_OFFLINE = "offline"
+MQTT_CONNECT_TIMEOUT_SECONDS = 10.0
 
 
 class MqttPublishError(RuntimeError):
@@ -134,14 +137,80 @@ def build_state_message(config: MqttConfig, mprn: str, totals: MeterTotals) -> M
     return MqttMessage(topic=state_topic(config, mprn), payload=payload)
 
 
+def _reason_code_failed(reason_code: object) -> bool:
+    is_failure = getattr(reason_code, "is_failure", None)
+    if isinstance(is_failure, bool):
+        return is_failure
+    if callable(is_failure):
+        failure_check = cast("Callable[[], object]", is_failure)
+        return bool(failure_check())
+    if isinstance(reason_code, int):
+        return reason_code != 0
+    if isinstance(reason_code, str):
+        return reason_code.lower() != "success"
+    return str(reason_code).lower() != "success"
+
+
 class MqttPublisher:
     def __init__(self, config: MqttConfig, client: Client | None = None) -> None:
         self._config = config
         self._client = client or Client(callback_api_version=CallbackAPIVersion.VERSION2)
         self._client.username_pw_set(config.username, config.password)
 
+    def _connect(self) -> None:
+        try:
+            result_code = self._client.connect(self._config.host, self._config.port)
+        except OSError as exc:
+            raise MqttPublishError(
+                f"Failed to connect to MQTT broker {self._config.host}:{self._config.port}"
+            ) from exc
+        if result_code != 0:
+            raise MqttPublishError(
+                "Failed to connect to MQTT broker "
+                f"{self._config.host}:{self._config.port}: rc={result_code}"
+            )
+
+    def check_connection(self) -> None:
+        connected = Event()
+        reason_code: object | None = None
+        previous_on_connect = self._client.on_connect
+
+        def on_connect(
+            client: Client,
+            userdata: object,
+            flags: object,
+            rc: object,
+            properties: object,
+        ) -> None:
+            nonlocal reason_code
+            reason_code = rc
+            connected.set()
+
+        self._client.on_connect = on_connect
+        loop_started = False
+        connected_to_socket = False
+        try:
+            self._connect()
+            connected_to_socket = True
+            self._client.loop_start()
+            loop_started = True
+            if not connected.wait(MQTT_CONNECT_TIMEOUT_SECONDS):
+                raise MqttPublishError(
+                    "Timed out waiting for MQTT broker connection acknowledgement"
+                )
+            if _reason_code_failed(reason_code):
+                raise MqttPublishError(
+                    f"MQTT broker rejected connection: rc={reason_code}"
+                )
+        finally:
+            if loop_started:
+                self._client.loop_stop()
+            if connected_to_socket:
+                self._client.disconnect()
+            self._client.on_connect = previous_on_connect
+
     def publish_messages(self, messages: list[MqttMessage]) -> None:
-        self._client.connect(self._config.host, self._config.port)
+        self._connect()
         self._client.loop_start()
         try:
             for message in messages:

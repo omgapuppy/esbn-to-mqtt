@@ -34,6 +34,17 @@ def app_config() -> AppConfig:
     )
 
 
+class SuccessfulConnectionPublisher:
+    def __init__(self, mqtt_config: MqttConfig) -> None:
+        self.mqtt_config = mqtt_config
+
+    def check_connection(self) -> None:
+        return
+
+    def publish_messages(self, messages: list[MqttMessage]) -> None:
+        return
+
+
 def test_main_once_swallows_mqtt_publish_error_and_redacts_logs(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -206,6 +217,7 @@ def test_run_once_refuses_login_during_challenge_cooldown(
 
     monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
     monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", SuccessfulConnectionPublisher)
     monkeypatch.setattr(
         main,
         "_utc_now",
@@ -217,6 +229,71 @@ def test_run_once_refuses_login_during_challenge_cooldown(
         main.run_once(tmp_path / "options.json", tmp_path)
 
     esbn_client.assert_not_called()
+
+
+def test_run_once_checks_mqtt_before_esbn_challenge_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = app_config()
+    (tmp_path / "esbn-challenge.json").write_text(
+        '{"challenged_at": "2026-05-14T14:00:00+00:00"}',
+        encoding="utf-8",
+    )
+    connection_check = Mock()
+    esbn_client = Mock()
+
+    class FakePublisher:
+        def __init__(self, mqtt_config: MqttConfig) -> None:
+            self.mqtt_config = mqtt_config
+
+        def check_connection(self) -> None:
+            connection_check()
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", FakePublisher)
+    monkeypatch.setattr(
+        main,
+        "_utc_now",
+        Mock(return_value=datetime(2026, 5, 14, 15, 0, tzinfo=UTC)),
+    )
+    monkeypatch.setattr(main, "EsbnClient", esbn_client)
+
+    with caplog.at_level("INFO"), pytest.raises(EsbnChallengeError):
+        main.run_once(tmp_path / "options.json", tmp_path)
+
+    connection_check.assert_called_once_with()
+    esbn_client.assert_not_called()
+    assert "MQTT connection check succeeded" in caplog.text
+
+
+def test_run_once_stops_before_esbn_when_mqtt_connection_check_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = app_config()
+    esbn_client = Mock()
+
+    class FakePublisher:
+        def __init__(self, mqtt_config: MqttConfig) -> None:
+            self.mqtt_config = mqtt_config
+
+        def check_connection(self) -> None:
+            raise MqttPublishError("Failed to connect to MQTT broker core-mosquitto:1883")
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", FakePublisher)
+    monkeypatch.setattr(main, "EsbnClient", esbn_client)
+
+    with caplog.at_level("ERROR"), pytest.raises(MqttPublishError):
+        main.run_once(tmp_path / "options.json", tmp_path)
+
+    esbn_client.assert_not_called()
+    assert "MQTT connection check failed" in caplog.text
 
 
 def test_main_records_challenge_cooldown_after_esbn_challenge(
@@ -262,6 +339,7 @@ def test_run_once_raises_runtime_state_error_for_malformed_cached_state(
 
     monkeypatch.setattr(main, "load_options_file", Mock(return_value=app_config()))
     monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", SuccessfulConnectionPublisher)
 
     with pytest.raises(main.RuntimeStateError, match="cached accumulator state"):
         main.run_once(options_path, tmp_path)
@@ -277,6 +355,7 @@ def test_run_once_raises_runtime_state_error_for_structurally_invalid_cached_sta
 
     monkeypatch.setattr(main, "load_options_file", Mock(return_value=app_config()))
     monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", SuccessfulConnectionPublisher)
 
     with pytest.raises(main.RuntimeStateError, match="cached accumulator state"):
         main.run_once(options_path, tmp_path)
@@ -292,6 +371,7 @@ def test_run_once_rejects_existing_empty_cached_state(
 
     monkeypatch.setattr(main, "load_options_file", Mock(return_value=app_config()))
     monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", SuccessfulConnectionPublisher)
 
     with pytest.raises(main.RuntimeStateError, match="cached accumulator state"):
         main.run_once(options_path, tmp_path)
