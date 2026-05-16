@@ -264,6 +264,7 @@ def test_download_30_min_kwh_hdf_raises_on_challenge_page() -> None:
 
 def test_download_30_min_kwh_hdf_solves_recaptcha_challenge_before_confirming_sign_in(
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     requests: list[httpx.Request] = []
     solver = FakeCaptchaSolver()
@@ -369,11 +370,16 @@ def test_download_30_min_kwh_hdf_solves_recaptcha_challenge_before_confirming_si
         captcha_solver=solver,
     )
     try:
+        caplog.set_level("INFO", logger="esbn_to_mqtt.esbn")
         csv_content = client.download_30_min_kwh_hdf()
     finally:
         client.close()
 
     assert csv_content.startswith("Read Date and End Time")
+    assert "Requesting ESBN confirmation after CAPTCHA" in caplog.text
+    assert "ESBN confirmation response received after CAPTCHA" in caplog.text
+    assert "ESBN confirmation form accepted" in caplog.text
+    assert "ESBN HDF export received" in caplog.text
     assert solver.calls == [
         (
             "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"

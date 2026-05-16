@@ -7,6 +7,7 @@ import re
 from http.cookiejar import LoadError, MozillaCookieJar
 from io import StringIO
 from pathlib import Path
+from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
@@ -123,11 +124,16 @@ class EsbnClient:
 
     def _download_authenticated_hdf(self, *, refresh_root: bool) -> str:
         if refresh_root:
-            self._ensure_success(self._client.get(ROOT_URL))
-        self._client.get(f"{BASE_URL}/Api/HistoricConsumption")
+            LOGGER.info("Refreshing ESBN portal session before HDF download")
+            response = self._get(ROOT_URL, step="refresh portal session")
+            self._ensure_success(response)
+        LOGGER.info("Opening ESBN historic consumption page")
+        self._get(f"{BASE_URL}/Api/HistoricConsumption", step="historic consumption page")
         token = self._load_xsrf_token()
         csv_response = self._download_csv(token)
-        return self._validate_csv(csv_response)
+        csv_content = self._validate_csv(csv_response)
+        LOGGER.info("ESBN HDF export received")
+        return csv_content
 
     def _save_cookies(self) -> None:
         if self._cookie_jar_path is None:
@@ -199,8 +205,9 @@ class EsbnClient:
         self._confirmed_html = response.text
 
     def _get_confirmed(self, csrf: str, trans_id: str) -> httpx.Response:
-        response = self._client.get(
+        response = self._get(
             f"{LOGIN_BASE_URL}{CONFIRMED_PATH}",
+            step="sign-in confirmation",
             params={
                 "rememberMe": "false",
                 "csrf_token": csrf,
@@ -238,7 +245,9 @@ class EsbnClient:
 
         self._submit_captcha_token(settings["csrf"], settings["transId"], claim_id, captcha_token)
         LOGGER.info("2Captcha solution submitted to ESBN")
+        LOGGER.info("Requesting ESBN confirmation after CAPTCHA")
         confirmed_response = self._get_confirmed(settings["csrf"], settings["transId"])
+        LOGGER.info("ESBN confirmation response received after CAPTCHA")
         if self._is_challenge_body(confirmed_response.text):
             raise EsbnChallengeError("ESBN CAPTCHA challenge remained after solver response")
         return confirmed_response
@@ -250,8 +259,9 @@ class EsbnClient:
         claim_id: str,
         captcha_token: str,
     ) -> None:
-        response = self._client.post(
+        response = self._post(
             f"{LOGIN_BASE_URL}{SELF_ASSERTED_PATH}?tx={trans_id}&p=B2C_1A_signup_signin",
+            step="CAPTCHA token submission",
             data={
                 claim_id: captcha_token,
                 "request_type": "RESPONSE",
@@ -349,8 +359,10 @@ class EsbnClient:
                 raise EsbnAuthenticationError(f"ESBN confirmation form missing {name}")
             values[name] = value
 
-        response = self._client.post(
+        LOGGER.info("Posting ESBN confirmation form")
+        response = self._post(
             action,
+            step="confirmation form post",
             data=values,
             follow_redirects=False,
         )
@@ -366,9 +378,10 @@ class EsbnClient:
             or resolved_location.host != "myaccount.esbnetworks.ie"
         ):
             raise EsbnAuthenticationError("ESBN confirmation form post failed")
+        LOGGER.info("ESBN confirmation form accepted")
 
     def _load_xsrf_token(self) -> str:
-        response = self._client.get(f"{BASE_URL}/af/t")
+        response = self._get(f"{BASE_URL}/af/t", step="XSRF token")
         self._ensure_success(response)
         try:
             token = response.json()["token"]
@@ -379,8 +392,10 @@ class EsbnClient:
         return token
 
     def _download_csv(self, token: str) -> httpx.Response:
-        return self._client.post(
+        LOGGER.info("Downloading ESBN HDF export")
+        return self._post(
             f"{BASE_URL}/DataHub/DownloadHdfPeriodic",
+            step="HDF export download",
             json={
                 "mprn": self._credentials.mprn,
                 "searchType": "intervalkwh",
@@ -410,6 +425,22 @@ class EsbnClient:
         if len(first_row) < 2:
             raise EsbnError("ESBN export did not look like CSV")
         return text
+
+    def _get(self, url: str, *, step: str, **kwargs: Any) -> httpx.Response:
+        try:
+            return self._client.get(url, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise EsbnError(f"ESBN request timed out during {step}") from exc
+        except httpx.RequestError as exc:
+            raise EsbnError(f"ESBN request failed during {step}: {exc.__class__.__name__}") from exc
+
+    def _post(self, url: str, *, step: str, **kwargs: Any) -> httpx.Response:
+        try:
+            return self._client.post(url, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise EsbnError(f"ESBN request timed out during {step}") from exc
+        except httpx.RequestError as exc:
+            raise EsbnError(f"ESBN request failed during {step}: {exc.__class__.__name__}") from exc
 
     @staticmethod
     def _ensure_success(response: httpx.Response) -> None:

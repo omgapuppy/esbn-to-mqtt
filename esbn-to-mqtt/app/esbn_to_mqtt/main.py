@@ -241,6 +241,7 @@ def main() -> None:
             if args.once:
                 break
             sleep_seconds = config.poll_interval_seconds
+            LOGGER.info("polling cycle completed; sleeping for %s seconds", sleep_seconds)
 
         time.sleep(sleep_seconds)
 
