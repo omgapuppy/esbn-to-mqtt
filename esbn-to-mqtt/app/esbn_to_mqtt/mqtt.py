@@ -143,7 +143,12 @@ def _last_update_discovery_payload(config: MqttConfig, mprn: str) -> dict[str, A
 
 
 def build_discovery_messages(
-    config: MqttConfig, mprn: str, *, include_export: bool
+    config: MqttConfig,
+    mprn: str,
+    *,
+    include_export: bool,
+    include_tariff: bool = False,
+    tariff_currency: str = "EUR",
 ) -> list[MqttMessage]:
     messages = [
         MqttMessage(
@@ -316,6 +321,76 @@ def build_discovery_messages(
                 ),
             ]
         )
+    if include_tariff:
+        messages.extend(
+            [
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "import_cost_total"),
+                    payload=_sensor_discovery_payload(
+                        config,
+                        mprn,
+                        "import_cost_total",
+                        "ESBN Import Cost Total",
+                        "import_cost_total",
+                        device_class="monetary",
+                        state_class="total_increasing",
+                        unit_of_measurement=tariff_currency,
+                        suggested_display_precision=2,
+                    ),
+                ),
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "today_import_cost"),
+                    payload=_sensor_discovery_payload(
+                        config,
+                        mprn,
+                        "today_import_cost",
+                        "ESBN Today Import Cost",
+                        "today_import_cost",
+                        device_class="monetary",
+                        state_class="total",
+                        unit_of_measurement=tariff_currency,
+                        suggested_display_precision=2,
+                    ),
+                ),
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "current_month_import_cost"),
+                    payload=_sensor_discovery_payload(
+                        config,
+                        mprn,
+                        "current_month_import_cost",
+                        "ESBN Current Month Import Cost",
+                        "current_month_import_cost",
+                        device_class="monetary",
+                        state_class="total",
+                        unit_of_measurement=tariff_currency,
+                        suggested_display_precision=2,
+                    ),
+                ),
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "current_tariff"),
+                    payload=_sensor_discovery_payload(
+                        config,
+                        mprn,
+                        "current_tariff",
+                        "ESBN Current Tariff",
+                        "current_tariff",
+                    ),
+                ),
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "current_tariff_rate"),
+                    payload=_sensor_discovery_payload(
+                        config,
+                        mprn,
+                        "current_tariff_rate",
+                        "ESBN Current Tariff Rate",
+                        "current_tariff_rate",
+                        state_class="measurement",
+                        unit_of_measurement=f"{tariff_currency}/kWh",
+                        suggested_display_precision=4,
+                    ),
+                ),
+            ]
+        )
     return messages
 
 
@@ -327,6 +402,7 @@ def build_state_message(
 ) -> MqttMessage:
     payload: dict[str, Any] = {
         "import_total_kwh": totals.import_total_kwh,
+        "import_cost_total": totals.import_cost_total,
         "last_successful_fetch": datetime.now(UTC).isoformat(),
         "source": SOURCE_NAME,
     }
@@ -347,6 +423,16 @@ def build_state_message(
                 "auth_path": metrics.auth_path,
             }
         )
+        if metrics.today_import_cost is not None:
+            payload["today_import_cost"] = metrics.today_import_cost
+        if metrics.current_month_import_cost is not None:
+            payload["current_month_import_cost"] = metrics.current_month_import_cost
+        if metrics.current_tariff is not None:
+            payload["current_tariff"] = metrics.current_tariff
+        if metrics.current_tariff_rate is not None:
+            payload["current_tariff_rate"] = metrics.current_tariff_rate
+        if metrics.tariff_currency is not None:
+            payload["tariff_currency"] = metrics.tariff_currency
         if metrics.latest_export_interval_kwh is not None:
             payload["latest_export_interval_kwh"] = metrics.latest_export_interval_kwh
         if metrics.today_export_kwh is not None:

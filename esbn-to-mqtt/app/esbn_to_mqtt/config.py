@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .logging import LOG_LEVELS
-from .models import AppConfig, CaptchaConfig, EsbnCredentials, MqttConfig
+from .models import AppConfig, CaptchaConfig, EsbnCredentials, MqttConfig, TariffConfig
 
 MPRN_PATTERN = re.compile(r"^\d{11}$")
 
@@ -50,6 +50,43 @@ def _optional_int(options: dict[str, Any], key: str, default: int) -> int:
     return integer_value
 
 
+def _optional_bool(options: dict[str, Any], key: str, default: bool) -> bool:
+    value = options.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(f"{key} must be a boolean")
+    return value
+
+
+def _optional_float(options: dict[str, Any], key: str, default: float) -> float:
+    value = options.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ConfigError(f"{key} must be a number")
+    number_value = float(value)
+    if number_value < 0:
+        raise ConfigError(f"{key} must be at least 0")
+    return number_value
+
+
+def _env_bool(key: str, default: str) -> bool:
+    value = os.environ.get(key, default).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigError(f"{key} must be a boolean")
+
+
+def _env_float(key: str, default: str) -> float:
+    value = os.environ.get(key, default)
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ConfigError(f"{key} must be a number") from exc
+    if parsed < 0:
+        raise ConfigError(f"{key} must be at least 0")
+    return parsed
+
+
 def _env_int(key: str, default: str) -> int:
     value = os.environ.get(key, default)
     try:
@@ -86,6 +123,20 @@ def _captcha_config(options: dict[str, Any]) -> CaptchaConfig:
     )
 
 
+def _tariff_config(options: dict[str, Any]) -> TariffConfig:
+    currency = (_optional_str(options, "tariff_currency") or "EUR").upper()
+    if not re.fullmatch(r"[A-Z]{3}", currency):
+        raise ConfigError("tariff_currency must be a 3-letter currency code")
+
+    return TariffConfig(
+        enabled=_optional_bool(options, "tariff_enabled", False),
+        day_rate=_optional_float(options, "tariff_day_rate_eur_per_kwh", 0.0),
+        night_rate=_optional_float(options, "tariff_night_rate_eur_per_kwh", 0.0),
+        peak_rate=_optional_float(options, "tariff_peak_rate_eur_per_kwh", 0.0),
+        currency=currency,
+    )
+
+
 def load_config_dict(options: dict[str, Any]) -> AppConfig:
     try:
         mprn = _required_str(options, "mprn")
@@ -117,6 +168,7 @@ def load_config_dict(options: dict[str, Any]) -> AppConfig:
             topic_prefix=_required_str(options, "mqtt_topic_prefix"),
         ),
         captcha=_captcha_config(options),
+        tariff=_tariff_config(options),
         poll_interval_hours=poll_interval_hours,
         log_level=_log_level(options),
     )
@@ -146,6 +198,11 @@ def load_env_config() -> AppConfig:
             "captcha_solver": os.environ.get("CAPTCHA_SOLVER", "disabled"),
             "two_captcha_api_key": os.environ.get("TWO_CAPTCHA_API_KEY"),
             "two_captcha_timeout_seconds": _env_int("TWO_CAPTCHA_TIMEOUT_SECONDS", "120"),
+            "tariff_enabled": _env_bool("TARIFF_ENABLED", "false"),
+            "tariff_day_rate_eur_per_kwh": _env_float("TARIFF_DAY_RATE_EUR_PER_KWH", "0"),
+            "tariff_night_rate_eur_per_kwh": _env_float("TARIFF_NIGHT_RATE_EUR_PER_KWH", "0"),
+            "tariff_peak_rate_eur_per_kwh": _env_float("TARIFF_PEAK_RATE_EUR_PER_KWH", "0"),
+            "tariff_currency": os.environ.get("TARIFF_CURRENCY", "EUR"),
             "log_level": os.environ.get("LOG_LEVEL", "info"),
         }
     )

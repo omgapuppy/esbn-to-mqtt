@@ -29,6 +29,15 @@ class CaptchaConfig:
 
 
 @dataclass(frozen=True)
+class TariffConfig:
+    enabled: bool = False
+    day_rate: float = 0.0
+    night_rate: float = 0.0
+    peak_rate: float = 0.0
+    currency: str = "EUR"
+
+
+@dataclass(frozen=True)
 class MeterReading:
     timestamp: datetime
     import_kwh: float | None = None
@@ -47,6 +56,7 @@ class AppConfig:
     poll_interval_hours: int
     log_level: str
     captcha: CaptchaConfig = CaptchaConfig()
+    tariff: TariffConfig = TariffConfig()
 
     @property
     def mprn(self) -> str:
@@ -63,9 +73,16 @@ class MeterTotals:
     export_total_kwh: float | None
     last_interval_start: datetime | None
     processed_intervals: frozenset[str] = field(default_factory=frozenset)
+    import_cost_total: float = 0.0
+    processed_cost_intervals: frozenset[str] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "processed_intervals", frozenset(self.processed_intervals))
+        object.__setattr__(
+            self,
+            "processed_cost_intervals",
+            frozenset(self.processed_cost_intervals),
+        )
 
 
 @dataclass(frozen=True)
@@ -82,3 +99,8 @@ class MeterMetrics:
     new_interval_values_processed: int
     captcha_used: bool
     auth_path: str
+    today_import_cost: float | None = None
+    current_month_import_cost: float | None = None
+    current_tariff: str | None = None
+    current_tariff_rate: float | None = None
+    tariff_currency: str | None = None

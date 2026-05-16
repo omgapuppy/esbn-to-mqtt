@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from .models import MeterMetrics, MeterReading
+from .models import MeterMetrics, MeterReading, TariffConfig
+from .tariff import calculate_import_cost, current_tariff_snapshot
 
 LOCAL_TZ = ZoneInfo("Europe/Dublin")
 
@@ -56,6 +57,7 @@ def build_meter_metrics(
     processed_after: frozenset[str],
     auth_path: str,
     captcha_used: bool,
+    tariff: TariffConfig | None = None,
     now: datetime | None = None,
 ) -> MeterMetrics:
     timestamp = now or datetime.now(UTC)
@@ -69,6 +71,33 @@ def build_meter_metrics(
 
     today_import = _sum_for_local_day(readings, "import_kwh", timestamp) or 0.0
     month_import = _sum_for_local_month(readings, "import_kwh", timestamp) or 0.0
+    today_import_cost = None
+    month_import_cost = None
+    current_tariff = None
+    current_tariff_rate = None
+    tariff_currency = None
+    if tariff is not None and tariff.enabled:
+        today_readings = [
+            reading
+            for reading in readings
+            if reading.timestamp.astimezone(LOCAL_TZ).date()
+            == timestamp.astimezone(LOCAL_TZ).date()
+        ]
+        local_now = timestamp.astimezone(LOCAL_TZ)
+        month_readings = [
+            reading
+            for reading in readings
+            if (
+                reading.timestamp.astimezone(LOCAL_TZ).year == local_now.year
+                and reading.timestamp.astimezone(LOCAL_TZ).month == local_now.month
+            )
+        ]
+        today_import_cost = calculate_import_cost(today_readings, tariff)
+        month_import_cost = calculate_import_cost(month_readings, tariff)
+        snapshot = current_tariff_snapshot(tariff, now=timestamp)
+        current_tariff = snapshot.name
+        current_tariff_rate = snapshot.rate
+        tariff_currency = snapshot.currency
 
     return MeterMetrics(
         latest_import_interval_kwh=_latest_value(readings, "import_kwh"),
@@ -83,4 +112,9 @@ def build_meter_metrics(
         new_interval_values_processed=len(processed_after - processed_before),
         captcha_used=captcha_used,
         auth_path=auth_path,
+        today_import_cost=today_import_cost,
+        current_month_import_cost=month_import_cost,
+        current_tariff=current_tariff,
+        current_tariff_rate=current_tariff_rate,
+        tariff_currency=tariff_currency,
     )

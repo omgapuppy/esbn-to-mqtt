@@ -161,6 +161,7 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
         readings = parse_hdf_csv(csv_content)
         processed_before = accumulator.processed_intervals
         accumulator = accumulator.apply(readings)
+        accumulator = accumulator.apply_tariff_costs(readings, config.tariff)
         accumulator.save(state_path)
 
         totals = accumulator.to_totals()
@@ -170,12 +171,15 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
             processed_after=totals.processed_intervals,
             auth_path=client.last_auth_path,
             captcha_used=client.captcha_used,
+            tariff=config.tariff,
             now=_utc_now(),
         )
         messages = build_discovery_messages(
             config.mqtt,
             config.mprn,
             include_export=totals.export_total_kwh is not None,
+            include_tariff=config.tariff.enabled,
+            tariff_currency=config.tariff.currency,
         )
         messages.append(build_state_message(config.mqtt, config.mprn, totals, metrics))
         messages.append(build_availability_message(config.mqtt, config.mprn, online=True))

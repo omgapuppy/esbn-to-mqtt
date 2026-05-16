@@ -45,11 +45,22 @@ def metrics() -> MeterMetrics:
         new_interval_values_processed=2,
         captcha_used=True,
         auth_path="login+captcha",
+        today_import_cost=1.23,
+        current_month_import_cost=12.34,
+        current_tariff="peak",
+        current_tariff_rate=0.45,
+        tariff_currency="EUR",
     )
 
 
 def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
-    messages = build_discovery_messages(mqtt_config(), "10000000000", include_export=True)
+    messages = build_discovery_messages(
+        mqtt_config(),
+        "10000000000",
+        include_export=True,
+        include_tariff=True,
+        tariff_currency="EUR",
+    )
     import_message = next(message for message in messages if "import_total" in message.topic)
     last_update_message = next(message for message in messages if "last_update" in message.topic)
     latest_import_message = next(
@@ -57,6 +68,12 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     )
     data_lag_message = next(message for message in messages if "data_lag" in message.topic)
     auth_path_message = next(message for message in messages if "auth_path" in message.topic)
+    cost_total_message = next(
+        message for message in messages if "import_cost_total" in message.topic
+    )
+    current_rate_message = next(
+        message for message in messages if "current_tariff_rate" in message.topic
+    )
     meter_id = hash_mprn("10000000000")
 
     assert import_message.retain is True
@@ -92,13 +109,25 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     assert data_lag_message.payload["entity_category"] == "diagnostic"
     assert auth_path_message.payload["entity_category"] == "diagnostic"
     assert auth_path_message.payload["value_template"] == "{{ value_json.auth_path }}"
-    assert len(messages) == 15
+    assert cost_total_message.payload["device_class"] == "monetary"
+    assert cost_total_message.payload["state_class"] == "total_increasing"
+    assert cost_total_message.payload["unit_of_measurement"] == "EUR"
+    assert cost_total_message.payload["value_template"] == "{{ value_json.import_cost_total }}"
+    assert current_rate_message.payload["unit_of_measurement"] == "EUR/kWh"
+    assert current_rate_message.payload["value_template"] == "{{ value_json.current_tariff_rate }}"
+    assert len(messages) == 20
 
 
 def test_build_discovery_messages_omits_export_derived_sensors_without_export_data() -> None:
-    messages = build_discovery_messages(mqtt_config(), "10000000000", include_export=False)
+    messages = build_discovery_messages(
+        mqtt_config(),
+        "10000000000",
+        include_export=False,
+        include_tariff=False,
+    )
 
     assert all("export" not in message.topic for message in messages)
+    assert all("cost" not in message.topic for message in messages)
     assert any("latest_import_interval" in message.topic for message in messages)
     assert any("today_import" in message.topic for message in messages)
     assert any("current_month_import" in message.topic for message in messages)
@@ -109,6 +138,7 @@ def test_build_state_message_contains_totals_derived_metrics_and_diagnostics() -
 
     assert message.retain is True
     assert message.payload["import_total_kwh"] == 3.45
+    assert message.payload["import_cost_total"] == 0.0
     assert message.payload["export_total_kwh"] == 1.25
     assert message.payload["latest_import_interval_kwh"] == 0.75
     assert message.payload["latest_export_interval_kwh"] == 0.2
@@ -122,6 +152,11 @@ def test_build_state_message_contains_totals_derived_metrics_and_diagnostics() -
     assert message.payload["new_interval_values_processed"] == 2
     assert message.payload["captcha_used"] is True
     assert message.payload["auth_path"] == "login+captcha"
+    assert message.payload["today_import_cost"] == 1.23
+    assert message.payload["current_month_import_cost"] == 12.34
+    assert message.payload["current_tariff"] == "peak"
+    assert message.payload["current_tariff_rate"] == 0.45
+    assert message.payload["tariff_currency"] == "EUR"
     assert message.payload["last_interval_start"] == "2026-05-12T01:30:00+00:00"
     assert message.payload["source"] == "esb_networks_hdf_30_min_kwh"
     assert "last_successful_fetch" in message.payload

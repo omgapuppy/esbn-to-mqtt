@@ -10,7 +10,7 @@ import pytest
 from esbn_to_mqtt import main
 from esbn_to_mqtt.esbn import EsbnChallengeError, EsbnError
 from esbn_to_mqtt.hdf import HdfParseError
-from esbn_to_mqtt.models import AppConfig, CaptchaConfig, EsbnCredentials, MqttConfig
+from esbn_to_mqtt.models import AppConfig, CaptchaConfig, EsbnCredentials, MqttConfig, TariffConfig
 from esbn_to_mqtt.mqtt import MqttMessage, MqttPublishError, build_availability_message
 from esbn_to_mqtt.state import AccumulatorState
 
@@ -50,7 +50,16 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config = app_config()
+    config = replace(
+        app_config(),
+        tariff=TariffConfig(
+            enabled=True,
+            day_rate=0.30,
+            night_rate=0.15,
+            peak_rate=0.45,
+            currency="EUR",
+        ),
+    )
     published_messages: list[list[MqttMessage]] = []
 
     class FakePublisher:
@@ -99,6 +108,12 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
     )
     assert state_message.payload["latest_import_interval_kwh"] == 0.75
     assert state_message.payload["latest_export_interval_kwh"] == 0.2
+    assert state_message.payload["import_cost_total"] == 0.3
+    assert state_message.payload["today_import_cost"] == 0.3
+    assert state_message.payload["current_month_import_cost"] == 0.3
+    assert state_message.payload["current_tariff"] == "day"
+    assert state_message.payload["current_tariff_rate"] == 0.30
+    assert state_message.payload["tariff_currency"] == "EUR"
     assert state_message.payload["today_import_kwh"] == 1.0
     assert state_message.payload["current_month_import_kwh"] == 1.0
     assert state_message.payload["data_lag_hours"] == 1.0

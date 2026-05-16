@@ -17,6 +17,11 @@ Configure these settings in the app:
 - `captcha_solver` - default `disabled`; set to `2captcha` to solve ESBN reCAPTCHA challenges
 - `two_captcha_api_key` - required only when `captcha_solver` is `2captcha`
 - `two_captcha_timeout_seconds` - default `120`
+- `tariff_enabled` - default `false`; enables import cost sensors
+- `tariff_day_rate_eur_per_kwh` - VAT-inclusive day unit rate in currency/kWh
+- `tariff_night_rate_eur_per_kwh` - VAT-inclusive night unit rate in currency/kWh
+- `tariff_peak_rate_eur_per_kwh` - VAT-inclusive peak unit rate in currency/kWh
+- `tariff_currency` - default `EUR`
 - `log_level` - default `info`; accepted values `trace`, `debug`, `info`, `notice`, `warning`, `error`, `fatal`
 
 ## Energy Dashboard Setup
@@ -38,6 +43,26 @@ The app also publishes dashboard and diagnostic sensors:
 - `ESBN HDF Rows Parsed`
 - `ESBN CAPTCHA Used`
 - `ESBN Auth Path`
+
+If tariff costing is enabled, the app also publishes:
+
+- `ESBN Import Cost Total`
+- `ESBN Today Import Cost`
+- `ESBN Current Month Import Cost`
+- `ESBN Current Tariff`
+- `ESBN Current Tariff Rate`
+
+## Tariff Costing
+
+Tariff rates are user-entered unit rates in currency/kWh. They should include whatever VAT or discount treatment you want reflected in Home Assistant. Standing charges, levies, PSO, and other bill items are intentionally out of scope.
+
+The built-in smart tariff periods are:
+
+- Night: 23:00-08:00 Europe/Dublin local time
+- Peak: 17:00-19:00 Europe/Dublin local time
+- Day: 08:00-17:00 and 19:00-23:00 Europe/Dublin local time
+
+The app calculates cost from each 30-minute import interval and stores processed cost interval IDs in the app data directory so future polls do not double-charge the same HDF rows.
 
 ## Data Freshness
 

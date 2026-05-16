@@ -38,7 +38,7 @@ def test_app_metadata() -> None:
     config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
 
     assert config["name"] == "esbn-to-mqtt"
-    assert config["version"] == "0.3.0"
+    assert config["version"] == "0.4.0"
     assert config["slug"] == "esbn_to_mqtt"
     assert config["stage"] == "stable"
     assert config["options"]["mqtt_host"] == "core-mosquitto"
@@ -47,6 +47,12 @@ def test_app_metadata() -> None:
     assert config["options"]["captcha_solver"] == "disabled"
     assert "two_captcha_api_key" not in config["options"]
     assert config["options"]["two_captcha_timeout_seconds"] == 120
+    assert config["options"]["tariff_enabled"] is False
+    assert config["options"]["tariff_currency"] == "EUR"
+    assert config["options"]["tariff_day_rate_eur_per_kwh"] == 0.0
+    assert config["schema"]["tariff_enabled"] == "bool"
+    assert config["schema"]["tariff_day_rate_eur_per_kwh"] == "float(0,)"
+    assert config["schema"]["tariff_currency"] == "match(^[A-Za-z]{3}$)"
     assert config["schema"]["esbn_password"] == "password"
     assert config["schema"]["mqtt_password"] == "password"
     assert config["schema"]["two_captcha_api_key"] == "password?"

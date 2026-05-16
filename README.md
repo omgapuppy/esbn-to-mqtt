@@ -2,7 +2,7 @@
 
 `esbn-to-mqtt` is an unofficial Home Assistant app that turns ESB Networks smart meter HDF exports into MQTT sensors for Home Assistant.
 
-It signs in to the ESB Networks portal, downloads the 30-minute kWh export, keeps a monotonic local accumulator for the Home Assistant Energy dashboard, and publishes extra dashboard/diagnostic sensors so you can see freshness, recent interval usage, daily/monthly totals, auth path, and CAPTCHA activity.
+It signs in to the ESB Networks portal, downloads the 30-minute kWh export, keeps a monotonic local accumulator for the Home Assistant Energy dashboard, and publishes extra dashboard/diagnostic sensors so you can see freshness, recent interval usage, daily/monthly totals, smart tariff cost, auth path, and CAPTCHA activity.
 
 This is not a HACS integration and is not affiliated with, endorsed by, or connected to ESB Networks.
 
@@ -17,6 +17,7 @@ This is not a HACS integration and is not affiliated with, endorsed by, or conne
 - Energy dashboard totals: `ESBN Import Total`, plus `ESBN Export Total` when export data exists.
 - Recent visibility: latest 30-minute import/export interval.
 - Period totals: today and current month import/export.
+- Optional smart-tariff cost: total import cost, today/current month cost, current tariff, and current rate.
 - Freshness: latest ESBN interval start and data lag.
 - Diagnostics: last successful update, HDF rows parsed, new interval values processed, auth path, and CAPTCHA usage.
 
@@ -26,7 +27,8 @@ This is not a HACS integration and is not affiliated with, endorsed by, or conne
 2. Fall back to username/password login only when the session has expired.
 3. Optionally solve ESBN reCAPTCHA challenges through 2Captcha when configured.
 4. Download the 30-minute HDF export and parse import/export kWh readings.
-5. Publish retained MQTT discovery and state messages for Home Assistant.
+5. Optionally apply day, night, and peak import rates to calculate cost.
+6. Publish retained MQTT discovery and state messages for Home Assistant.
 
 ## Requirements
 

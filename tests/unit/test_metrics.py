@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from esbn_to_mqtt.metrics import build_meter_metrics
-from esbn_to_mqtt.models import MeterReading
+from esbn_to_mqtt.models import MeterReading, TariffConfig
+
+
+def tariff_config() -> TariffConfig:
+    return TariffConfig(
+        enabled=True,
+        day_rate=0.30,
+        night_rate=0.15,
+        peak_rate=0.45,
+        currency="EUR",
+    )
 
 
 def test_build_meter_metrics_summarizes_recent_periods_and_diagnostics() -> None:
@@ -37,6 +47,7 @@ def test_build_meter_metrics_summarizes_recent_periods_and_diagnostics() -> None
         ),
         auth_path="login+captcha",
         captcha_used=True,
+        tariff=tariff_config(),
         now=datetime(2026, 5, 16, 20, 0, tzinfo=UTC),
     )
 
@@ -46,6 +57,11 @@ def test_build_meter_metrics_summarizes_recent_periods_and_diagnostics() -> None
     assert metrics.today_export_kwh == 0.2
     assert metrics.current_month_import_kwh == 1.5
     assert metrics.current_month_export_kwh == 0.3
+    assert metrics.today_import_cost == 0.3
+    assert metrics.current_month_import_cost == 0.375
+    assert metrics.current_tariff == "day"
+    assert metrics.current_tariff_rate == 0.30
+    assert metrics.tariff_currency == "EUR"
     assert metrics.latest_esbn_interval_start == datetime(2026, 5, 16, 18, 30, tzinfo=UTC)
     assert metrics.data_lag_hours == 1.5
     assert metrics.hdf_rows_parsed == 3
@@ -61,11 +77,16 @@ def test_build_meter_metrics_omits_export_values_when_no_export_readings_exist()
         processed_after=frozenset({"2026-05-16T18:30:00+00:00:import"}),
         auth_path="cookie",
         captcha_used=False,
+        tariff=None,
         now=datetime(2026, 5, 16, 20, 0, tzinfo=UTC),
     )
 
     assert metrics.latest_export_interval_kwh is None
     assert metrics.today_export_kwh is None
     assert metrics.current_month_export_kwh is None
+    assert metrics.today_import_cost is None
+    assert metrics.current_month_import_cost is None
+    assert metrics.current_tariff is None
+    assert metrics.current_tariff_rate is None
     assert metrics.auth_path == "cookie"
     assert metrics.captcha_used is False
