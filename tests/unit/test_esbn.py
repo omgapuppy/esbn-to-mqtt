@@ -182,6 +182,8 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
         client.close()
 
     assert csv_content.startswith("Read Date and End Time")
+    assert client.last_auth_path == "login"
+    assert client.captcha_used is False
     assert "session" in cookie_path.read_text(encoding="utf-8")
     assert [str(request.url) for request in requests] == [
         "https://myaccount.esbnetworks.ie/",
@@ -234,6 +236,8 @@ def test_download_30_min_kwh_hdf_uses_persisted_session_cookie(
         client.close()
 
     assert csv_content.startswith("Read Date and End Time")
+    assert client.last_auth_path == "cookie"
+    assert client.captcha_used is False
     assert [str(request.url) for request in requests] == [
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
@@ -376,6 +380,8 @@ def test_download_30_min_kwh_hdf_solves_recaptcha_challenge_before_confirming_si
         client.close()
 
     assert csv_content.startswith("Read Date and End Time")
+    assert client.last_auth_path == "login+captcha"
+    assert client.captcha_used is True
     assert "Requesting ESBN confirmation after CAPTCHA" in caplog.text
     assert "ESBN confirmation response received after CAPTCHA" in caplog.text
     assert "ESBN confirmation form accepted" in caplog.text

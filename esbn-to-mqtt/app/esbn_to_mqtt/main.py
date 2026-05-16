@@ -12,6 +12,7 @@ from .config import load_options_file
 from .esbn import EsbnChallengeError, EsbnClient, EsbnError
 from .hdf import HdfParseError, parse_hdf_csv
 from .logging import configure_logging, mask_mprn, redact
+from .metrics import build_meter_metrics
 from .models import AppConfig
 from .mqtt import (
     MqttPublisher,
@@ -158,16 +159,25 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     try:
         csv_content = client.download_30_min_kwh_hdf()
         readings = parse_hdf_csv(csv_content)
+        processed_before = accumulator.processed_intervals
         accumulator = accumulator.apply(readings)
         accumulator.save(state_path)
 
         totals = accumulator.to_totals()
+        metrics = build_meter_metrics(
+            readings,
+            processed_before=processed_before,
+            processed_after=totals.processed_intervals,
+            auth_path=client.last_auth_path,
+            captcha_used=client.captcha_used,
+            now=_utc_now(),
+        )
         messages = build_discovery_messages(
             config.mqtt,
             config.mprn,
             include_export=totals.export_total_kwh is not None,
         )
-        messages.append(build_state_message(config.mqtt, config.mprn, totals))
+        messages.append(build_state_message(config.mqtt, config.mprn, totals, metrics))
         messages.append(build_availability_message(config.mqtt, config.mprn, online=True))
         publisher.publish_messages(messages)
         _clear_challenge_cooldown(data_dir)

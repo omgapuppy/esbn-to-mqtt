@@ -20,6 +20,14 @@ def test_fixture_to_mqtt_messages_pipeline() -> None:
     discovery = build_discovery_messages(mqtt_config, "10000000000", include_export=True)
     state = build_state_message(mqtt_config, "10000000000", totals)
 
-    assert len(discovery) == 3
+    discovery_topics = {message.topic for message in discovery}
+
+    assert len(discovery) == 15
+    assert any("import_total" in topic for topic in discovery_topics)
+    assert any("latest_import_interval" in topic for topic in discovery_topics)
+    assert any("today_import" in topic for topic in discovery_topics)
+    assert any("current_month_import" in topic for topic in discovery_topics)
+    assert any("data_lag" in topic for topic in discovery_topics)
+    assert any("auth_path" in topic for topic in discovery_topics)
     assert state.payload["import_total_kwh"] == 0.45
     assert state.payload["export_total_kwh"] == 0.03

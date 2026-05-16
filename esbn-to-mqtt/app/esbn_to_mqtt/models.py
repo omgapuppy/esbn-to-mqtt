@@ -66,3 +66,19 @@ class MeterTotals:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "processed_intervals", frozenset(self.processed_intervals))
+
+
+@dataclass(frozen=True)
+class MeterMetrics:
+    latest_import_interval_kwh: float | None
+    latest_export_interval_kwh: float | None
+    today_import_kwh: float
+    today_export_kwh: float | None
+    current_month_import_kwh: float
+    current_month_export_kwh: float | None
+    latest_esbn_interval_start: datetime | None
+    data_lag_hours: float | None
+    hdf_rows_parsed: int
+    new_interval_values_processed: int
+    captcha_used: bool
+    auth_path: str

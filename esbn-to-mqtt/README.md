@@ -9,6 +9,7 @@ This app signs in to ESB Networks, downloads the 30-minute kWh HDF export, keeps
 - `ESBN Import Total` for grid consumption
 - `ESBN Export Total` when export data exists
 - `ESBN Last Update` as a diagnostic sensor
+- Recent interval, daily, monthly, lag, auth, CAPTCHA, and HDF parse diagnostics
 - Configurable polling, defaulting to every 6 hours
 - Optional 2Captcha solving when ESBN presents a reCAPTCHA challenge
 - Redacted logs for credentials and MPRNs

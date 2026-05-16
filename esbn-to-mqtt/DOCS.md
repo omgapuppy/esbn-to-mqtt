@@ -27,6 +27,18 @@ The app publishes MQTT discovery sensors that can be added to Home Assistant Ene
 - `ESBN Export Total` if export data exists
 - `ESBN Last Update` as a diagnostic sensor
 
+The app also publishes dashboard and diagnostic sensors:
+
+- `ESBN Latest Interval Import` and `ESBN Latest Interval Export`
+- `ESBN Today Import` and `ESBN Today Export`
+- `ESBN Current Month Import` and `ESBN Current Month Export`
+- `ESBN Data Lag`
+- `ESBN Latest Interval Start`
+- `ESBN New Values Processed`
+- `ESBN HDF Rows Parsed`
+- `ESBN CAPTCHA Used`
+- `ESBN Auth Path`
+
 ## Data Freshness
 
 The app now fetches live ESBN data during each poll. Freshness depends on the source portal exposing updated readings and on the configured polling interval, so new consumption values can still lag behind the meter by a few hours.
