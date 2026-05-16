@@ -15,11 +15,17 @@ This is not a HACS integration and is not affiliated with, endorsed by, or conne
 ## What It Publishes
 
 - Energy dashboard totals: `ESBN Import Total`, plus `ESBN Export Total` when export data exists.
-- Recent visibility: latest 30-minute import/export interval.
-- Period totals: today and current month import/export.
-- Optional smart-tariff cost: total import cost, today/current month cost, current tariff, and current rate.
-- Freshness: latest ESBN interval start and data lag.
-- Diagnostics: last successful update, HDF rows parsed, new interval values processed, auth path, and CAPTCHA usage.
+- Recent usage: `ESBN Latest Interval Import` and `ESBN Latest Interval Export`.
+- Period usage: `ESBN Today Import`, `ESBN Today Export`, `ESBN Current Month Import`, and `ESBN Current Month Export`.
+- Optional smart-tariff cost: `ESBN Import Cost Total`, `ESBN Today Import Cost`, and `ESBN Current Month Import Cost`.
+- Tariff context: `ESBN Current Tariff` and `ESBN Current Tariff Rate`.
+- Freshness: `ESBN Last Update`, `ESBN Latest Interval Start`, and `ESBN Data Lag`.
+- Diagnostics: `ESBN HDF Rows Parsed`, `ESBN New Values Processed`, `ESBN Auth Path`, and `ESBN CAPTCHA Used`.
+
+<p>
+  <img src="docs/images/ha-sensors.png" alt="Home Assistant ESBN sensors" width="320">
+  <img src="docs/images/ha-diagnostics.png" alt="Home Assistant ESBN diagnostic sensors" width="320">
+</p>
 
 ## How It Works
 
