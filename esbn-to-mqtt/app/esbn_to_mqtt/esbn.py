@@ -10,15 +10,26 @@ from pathlib import Path
 import httpx
 from bs4 import BeautifulSoup
 
+from .captcha import CaptchaSolveError, CaptchaSolver
 from .models import EsbnCredentials
 
 BASE_URL = "https://myaccount.esbnetworks.ie"
 ROOT_URL = f"{BASE_URL}/"
 LOGIN_BASE_URL = "https://login.esbnetworks.ie"
-USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:142.0) Gecko/20100101 Firefox/142.0"
+BASE_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-IE,en;q=0.9",
+    "DNT": "1",
+    "Upgrade-Insecure-Requests": "1",
+}
+AJAX_HEADERS = {
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "en-IE,en;q=0.9",
+    "Origin": LOGIN_BASE_URL,
+    "X-Requested-With": "XMLHttpRequest",
+}
 MAX_CSV_BYTES = 10 * 1024 * 1024
 SELF_ASSERTED_PATH = (
     "/esbntwkscustportalprdb2c01.onmicrosoft.com/"
@@ -53,10 +64,12 @@ class EsbnClient:
         credentials: EsbnCredentials,
         transport: httpx.BaseTransport | None = None,
         cookie_jar_path: Path | None = None,
+        captcha_solver: CaptchaSolver | None = None,
     ) -> None:
         self._credentials = credentials
         self._confirmed_html = ""
         self._cookie_jar_path = cookie_jar_path
+        self._captcha_solver = captcha_solver
         self._cookie_jar = MozillaCookieJar(
             str(cookie_jar_path) if cookie_jar_path is not None else None
         )
@@ -71,7 +84,7 @@ class EsbnClient:
             follow_redirects=True,
             timeout=60.0,
             transport=transport,
-            headers={"User-Agent": USER_AGENT},
+            headers=BASE_HEADERS,
             cookies=self._cookie_jar,
         )
 
@@ -134,7 +147,11 @@ class EsbnClient:
     def _load_settings(self) -> dict[str, str]:
         response = self._client.get(ROOT_URL)
         self._ensure_success(response)
-        match = re.search(r"var SETTINGS\s*=\s*(\{.*?\});", response.text, re.DOTALL)
+        return self._extract_settings(response.text)
+
+    @staticmethod
+    def _extract_settings(body: str) -> dict[str, str]:
+        match = re.search(r"var SETTINGS\s*=\s*(\{.*?\});", body, re.DOTALL)
         if match is None:
             raise EsbnAuthenticationError("ESBN settings not found on landing page")
         try:
@@ -146,7 +163,14 @@ class EsbnClient:
         trans_id = settings.get("transId")
         if not isinstance(csrf, str) or not csrf or not isinstance(trans_id, str) or not trans_id:
             raise EsbnAuthenticationError("ESBN settings missing csrf or transId")
-        return {"csrf": csrf, "transId": trans_id}
+        string_settings = {
+            key: value
+            for key, value in settings.items()
+            if isinstance(key, str) and isinstance(value, str)
+        }
+        string_settings["csrf"] = csrf
+        string_settings["transId"] = trans_id
+        return string_settings
 
     def _submit_credentials(self, csrf: str, trans_id: str) -> None:
         url = (
@@ -160,12 +184,18 @@ class EsbnClient:
                 "password": self._credentials.password,
                 "request_type": "RESPONSE",
             },
-            headers={"x-csrf-token": csrf},
+            headers={**AJAX_HEADERS, "x-csrf-token": csrf},
             follow_redirects=False,
         )
         self._ensure_success(response)
 
     def _confirm_sign_in(self, csrf: str, trans_id: str) -> None:
+        response = self._get_confirmed(csrf, trans_id)
+        if self._is_challenge_body(response.text):
+            response = self._solve_challenge_response(response)
+        self._confirmed_html = response.text
+
+    def _get_confirmed(self, csrf: str, trans_id: str) -> httpx.Response:
         response = self._client.get(
             f"{LOGIN_BASE_URL}{CONFIRMED_PATH}",
             params={
@@ -176,10 +206,125 @@ class EsbnClient:
             },
         )
         self._ensure_success(response)
-        body = response.text.lower()
-        if "g-recaptcha-response" in body or "captcha.html" in body or "not a robot" in body:
+        return response
+
+    @staticmethod
+    def _is_challenge_body(body: str) -> bool:
+        normalized = body.lower()
+        return (
+            "g-recaptcha-response" in normalized
+            or "captcha.html" in normalized
+            or "not a robot" in normalized
+        )
+
+    def _solve_challenge_response(self, response: httpx.Response) -> httpx.Response:
+        if self._captcha_solver is None:
             raise EsbnChallengeError(CHALLENGE_MESSAGE)
-        self._confirmed_html = response.text
+
+        settings = self._extract_settings(response.text)
+        claim_id = self._extract_captcha_claim_id(response.text)
+        site_key = self._extract_recaptcha_site_key(response.text, settings)
+        try:
+            captcha_token = self._captcha_solver.solve_recaptcha_v2(
+                website_url=str(response.url),
+                site_key=site_key,
+            )
+        except CaptchaSolveError as exc:
+            raise EsbnChallengeError(f"ESBN CAPTCHA solve failed: {exc}") from exc
+
+        self._submit_captcha_token(settings["csrf"], settings["transId"], claim_id, captcha_token)
+        confirmed_response = self._get_confirmed(settings["csrf"], settings["transId"])
+        if self._is_challenge_body(confirmed_response.text):
+            raise EsbnChallengeError("ESBN CAPTCHA challenge remained after solver response")
+        return confirmed_response
+
+    def _submit_captcha_token(
+        self,
+        csrf: str,
+        trans_id: str,
+        claim_id: str,
+        captcha_token: str,
+    ) -> None:
+        response = self._client.post(
+            f"{LOGIN_BASE_URL}{SELF_ASSERTED_PATH}?tx={trans_id}&p=B2C_1A_signup_signin",
+            data={
+                claim_id: captcha_token,
+                "request_type": "RESPONSE",
+            },
+            headers={**AJAX_HEADERS, "x-csrf-token": csrf},
+            follow_redirects=False,
+        )
+        self._ensure_success(response)
+
+    def _extract_recaptcha_site_key(self, body: str, settings: dict[str, str]) -> str:
+        site_key = self._find_recaptcha_site_key(body)
+        if site_key is not None:
+            return site_key
+
+        remote_resource = settings.get("remoteResource")
+        if not isinstance(remote_resource, str) or not remote_resource:
+            raise EsbnAuthenticationError("ESBN CAPTCHA page did not expose a site key")
+
+        template_response = self._client.get(remote_resource)
+        self._ensure_success(template_response)
+        site_key = self._find_recaptcha_site_key(template_response.text)
+        if site_key is not None:
+            return site_key
+
+        for script_url in self._extract_script_urls(template_response.text, remote_resource):
+            script_response = self._client.get(script_url)
+            self._ensure_success(script_response)
+            site_key = self._find_recaptcha_site_key(script_response.text)
+            if site_key is not None:
+                return site_key
+
+        raise EsbnAuthenticationError("ESBN CAPTCHA page did not expose a site key")
+
+    @staticmethod
+    def _find_recaptcha_site_key(body: str) -> str | None:
+        patterns = [
+            r"sitekey\s*:\s*['\"]([^'\"]+)['\"]",
+            r"data-sitekey\s*=\s*['\"]([^'\"]+)['\"]",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, body, re.IGNORECASE)
+            if match is not None:
+                return match.group(1)
+        return None
+
+    @staticmethod
+    def _extract_script_urls(body: str, base_url: str) -> list[str]:
+        soup = BeautifulSoup(body, "html.parser")
+        urls: list[str] = []
+        for script in soup.find_all("script"):
+            source = script.get("src")
+            if isinstance(source, str) and source:
+                urls.append(str(httpx.URL(base_url).join(source)))
+        urls.extend(
+            match.group(1)
+            for match in re.finditer(r"import\s+[^'\"]*['\"]([^'\"]+)['\"]", body)
+        )
+        return urls
+
+    @staticmethod
+    def _extract_captcha_claim_id(body: str) -> str:
+        match = re.search(r"var SA_FIELDS\s*=\s*(\{.*?\});", body, re.DOTALL)
+        if match is None:
+            return "g-recaptcha-response-toms"
+        try:
+            fields = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return "g-recaptcha-response-toms"
+        attribute_fields = fields.get("AttributeFields")
+        if not isinstance(attribute_fields, list):
+            return "g-recaptcha-response-toms"
+        for field in attribute_fields:
+            if not isinstance(field, dict):
+                continue
+            field_id = field.get("ID")
+            if isinstance(field_id, str) and "recaptcha" in field_id.lower():
+                return field_id
+        return "g-recaptcha-response-toms"
 
     def _complete_form_post(self) -> None:
         soup = BeautifulSoup(self._confirmed_html, "html.parser")

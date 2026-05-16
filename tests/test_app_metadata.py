@@ -38,14 +38,19 @@ def test_app_metadata() -> None:
     config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
 
     assert config["name"] == "esbn-to-mqtt"
-    assert config["version"] == "0.2.6"
+    assert config["version"] == "0.2.7"
     assert config["slug"] == "esbn_to_mqtt"
     assert config["stage"] == "stable"
     assert config["options"]["mqtt_host"] == "core-mosquitto"
     assert config["options"]["mqtt_port"] == 1883
     assert config["options"]["poll_interval_hours"] == 6
+    assert config["options"]["captcha_solver"] == "disabled"
+    assert "two_captcha_api_key" not in config["options"]
+    assert config["options"]["two_captcha_timeout_seconds"] == 120
     assert config["schema"]["esbn_password"] == "password"
     assert config["schema"]["mqtt_password"] == "password"
+    assert config["schema"]["two_captcha_api_key"] == "password?"
+    assert config["schema"]["captcha_solver"] == "list(disabled|2captcha)"
     assert config["schema"]["mqtt_host"] == "str"
     assert config["schema"]["mqtt_port"] == "port"
     assert "mqtt:need" in config["services"]

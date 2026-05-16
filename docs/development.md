@@ -12,6 +12,8 @@ python3 -m pip install -e ".[dev]"
 
 Use a local `.env` file for developer-only values. Keep secrets out of git and never commit credentials, tokens, cookies, or other account data.
 
+Set `CAPTCHA_SOLVER=2captcha` and `TWO_CAPTCHA_API_KEY=...` only when intentionally testing a live ESBN CAPTCHA challenge. The solver is not used unless ESBN returns a reCAPTCHA challenge page.
+
 ## Tests and lint
 
 Run the standard checks from the repo root:

@@ -23,7 +23,39 @@ def test_load_config_dict_accepts_valid_options() -> None:
     assert isinstance(config, AppConfig)
     assert config.mprn == "10000000000"
     assert config.mqtt.host == "core-mosquitto"
+    assert config.captcha.solver == "disabled"
     assert config.poll_interval_seconds == 21600
+
+
+def test_load_config_dict_accepts_2captcha_options() -> None:
+    options = valid_options()
+    options["captcha_solver"] = "2captcha"
+    options["two_captcha_api_key"] = "captcha-key"
+    options["two_captcha_timeout_seconds"] = 180
+
+    config = load_config_dict(options)
+
+    assert config.captcha.solver == "2captcha"
+    assert config.captcha.two_captcha_api_key == "captcha-key"
+    assert config.captcha.two_captcha_timeout_seconds == 180
+
+
+def test_load_config_dict_rejects_2captcha_without_api_key() -> None:
+    options = valid_options()
+    options["captcha_solver"] = "2captcha"
+    options["two_captcha_api_key"] = ""
+
+    with pytest.raises(ConfigError, match="two_captcha_api_key"):
+        load_config_dict(options)
+
+
+@pytest.mark.parametrize("timeout", [29, 601])
+def test_load_config_dict_rejects_invalid_2captcha_timeout(timeout: int) -> None:
+    options = valid_options()
+    options["two_captcha_timeout_seconds"] = timeout
+
+    with pytest.raises(ConfigError, match="two_captcha_timeout_seconds"):
+        load_config_dict(options)
 
 
 @pytest.mark.parametrize("mprn", ["", "123", "1234567890a", "123456789012"])
