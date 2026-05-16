@@ -1,5 +1,5 @@
 name: esbn-to-mqtt
-version: "0.2.6"
+version: "0.2.7"
 slug: esbn_to_mqtt
 description: Publish ESB Networks smart meter HDF data to Home Assistant MQTT sensors
 url: https://github.com/omgapuppy/esbn-to-mqtt/tree/main/esbn-to-mqtt
@@ -23,6 +23,8 @@ options:
   poll_interval_hours: 6
   mqtt_discovery_prefix: homeassistant
   mqtt_topic_prefix: esbn_to_mqtt
+  captcha_solver: disabled
+  two_captcha_timeout_seconds: 120
   log_level: info
 schema:
   esbn_username: email
@@ -35,5 +37,8 @@ schema:
   poll_interval_hours: int(1,)
   mqtt_discovery_prefix: str
   mqtt_topic_prefix: match(^[A-Za-z0-9_-]+$)
+  captcha_solver: list(disabled|2captcha)
+  two_captcha_api_key: password?
+  two_captcha_timeout_seconds: int(30,600)
   log_level: list(trace|debug|info|notice|warning|error|fatal)
 image: ghcr.io/omgapuppy/{arch}-esbn-to-mqtt

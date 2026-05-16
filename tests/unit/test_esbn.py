@@ -7,6 +7,7 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
+from esbn_to_mqtt.captcha import CaptchaSolver
 from esbn_to_mqtt.esbn import (
     EsbnAuthenticationError,
     EsbnChallengeError,
@@ -24,8 +25,15 @@ def _credentials() -> EsbnCredentials:
     )
 
 
-def _html_response(content: str, status_code: int = 200) -> httpx.Response:
-    return httpx.Response(status_code, text=content, headers={"content-type": "text/html"})
+def _html_response(
+    content: str,
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    response_headers = {"content-type": "text/html"}
+    if headers is not None:
+        response_headers.update(headers)
+    return httpx.Response(status_code, text=content, headers=response_headers)
 
 
 def _csv_response(content: str) -> httpx.Response:
@@ -56,6 +64,15 @@ def _write_session_cookie(path: Path) -> None:
         )
     )
     jar.save(ignore_discard=True, ignore_expires=True)
+
+
+class FakeCaptchaSolver(CaptchaSolver):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def solve_recaptcha_v2(self, *, website_url: str, site_key: str) -> str:
+        self.calls.append((website_url, site_key))
+        return "captcha-token"
 
 
 def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
@@ -243,6 +260,141 @@ def test_download_30_min_kwh_hdf_raises_on_challenge_page() -> None:
     with pytest.raises(EsbnChallengeError, match="browser verification"):
         client.download_30_min_kwh_hdf()
     client.close()
+
+
+def test_download_30_min_kwh_hdf_solves_recaptcha_challenge_before_confirming_sign_in(
+    tmp_path: Path,
+) -> None:
+    requests: list[httpx.Request] = []
+    solver = FakeCaptchaSolver()
+    login_root_gets = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal login_root_gets
+        requests.append(request)
+        url = str(request.url)
+
+        if url == "https://myaccount.esbnetworks.ie/":
+            if login_root_gets == 0:
+                login_root_gets += 1
+                return _html_response(
+                    '<html><script>var SETTINGS = '
+                    '{"csrf":"csrf-token","transId":"trans-id"};</script></html>'
+                )
+            return _html_response(
+                "<html><body>portal</body></html>",
+                headers={"set-cookie": "session=abc; Path=/; Secure; HttpOnly"},
+            )
+
+        if (
+            url == "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
+            "B2C_1A_signup_signin/SelfAsserted?tx=trans-id&p=B2C_1A_signup_signin"
+        ):
+            assert request.headers["x-csrf-token"] == "csrf-token"
+            return _html_response("signed in")
+
+        if (
+            url == "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
+            "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
+            "?rememberMe=false&csrf_token=csrf-token&tx=trans-id&p=B2C_1A_signup_signin"
+        ):
+            return _html_response(
+                """
+                <html><head><script>
+                var SA_FIELDS = {"AttributeFields":[{"ID":"g-recaptcha-response-toms"}]};
+                var SETTINGS = {
+                  "csrf":"captcha-csrf",
+                  "transId":"captcha-trans",
+                  "remoteResource":"https://customerportalprdsastd01.blob.core.windows.net/b2cpages/captcha.html"
+                };
+                </script></head><body>Please confirm you are not a robot.</body></html>
+                """
+            )
+
+        if (
+            url
+            == "https://customerportalprdsastd01.blob.core.windows.net/b2cpages/captcha.html"
+        ):
+            return _html_response(
+                '<script type="module" src="https://example.test/site.min.js"></script>'
+            )
+
+        if url == "https://example.test/site.min.js":
+            return httpx.Response(
+                200,
+                text='grecaptcha.render("captcha-container",{sitekey:"site-key-123"});',
+                headers={"content-type": "application/javascript"},
+            )
+
+        if (
+            url == "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
+            "B2C_1A_signup_signin/SelfAsserted?tx=captcha-trans&p=B2C_1A_signup_signin"
+        ):
+            assert request.headers["x-csrf-token"] == "captcha-csrf"
+            body = parse_qs(request.content.decode())
+            assert body == {
+                "g-recaptcha-response-toms": ["captcha-token"],
+                "request_type": ["RESPONSE"],
+            }
+            return _html_response("captcha accepted")
+
+        if (
+            url == "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
+            "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
+            "?rememberMe=false&csrf_token=captcha-csrf&tx=captcha-trans&p=B2C_1A_signup_signin"
+        ):
+            return _html_response(
+                '<html><form id="auto" action="https://login.esbnetworks.ie/continue">'
+                '<input name="state" value="state-token">'
+                '<input name="client_info" value="client-info-token">'
+                '<input name="code" value="code-token">'
+                "</form></html>"
+            )
+
+        if url == "https://login.esbnetworks.ie/continue":
+            return httpx.Response(302, headers={"location": "https://myaccount.esbnetworks.ie/"})
+
+        if url == "https://myaccount.esbnetworks.ie/Api/HistoricConsumption":
+            return _html_response("<html><body>historic</body></html>")
+        if url == "https://myaccount.esbnetworks.ie/af/t":
+            return httpx.Response(200, json={"token": "xsrf-token"})
+        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+            return _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n")
+        raise AssertionError(f"unexpected request: {request.method} {url}")
+
+    client = EsbnClient(
+        _credentials(),
+        transport=httpx.MockTransport(handler),
+        cookie_jar_path=tmp_path / "esbn-cookies.txt",
+        captcha_solver=solver,
+    )
+    try:
+        csv_content = client.download_30_min_kwh_hdf()
+    finally:
+        client.close()
+
+    assert csv_content.startswith("Read Date and End Time")
+    assert solver.calls == [
+        (
+            "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
+            "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
+            "?rememberMe=false&csrf_token=csrf-token&tx=trans-id&p=B2C_1A_signup_signin",
+            "site-key-123",
+        )
+    ]
+    assert [
+        str(request.url)
+        for request in requests
+        if request.url.host != "myaccount.esbnetworks.ie"
+    ][2:6] == [
+        "https://customerportalprdsastd01.blob.core.windows.net/b2cpages/captcha.html",
+        "https://example.test/site.min.js",
+        "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
+        "B2C_1A_signup_signin/SelfAsserted?tx=captcha-trans&p=B2C_1A_signup_signin",
+        "https://login.esbnetworks.ie/esbntwkscustportalprdb2c01.onmicrosoft.com/"
+        "B2C_1A_signup_signin/api/CombinedSigninAndSignup/confirmed"
+        "?rememberMe=false&csrf_token=captcha-csrf&tx=captcha-trans&p=B2C_1A_signup_signin",
+    ]
 
 
 def test_download_30_min_kwh_hdf_rejects_missing_settings() -> None:

@@ -7,6 +7,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from .captcha import build_captcha_solver
 from .config import load_options_file
 from .esbn import EsbnChallengeError, EsbnClient, EsbnError
 from .hdf import HdfParseError, parse_hdf_csv
@@ -140,7 +141,11 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
         raise RuntimeStateError("cached accumulator state could not be loaded") from exc
     if state_exists and not _state_has_totals(accumulator):
         raise RuntimeStateError("cached accumulator state was not usable")
-    client = EsbnClient(config.esbn, cookie_jar_path=_cookie_jar_path(data_dir))
+    client = EsbnClient(
+        config.esbn,
+        cookie_jar_path=_cookie_jar_path(data_dir),
+        captcha_solver=build_captcha_solver(config.captcha),
+    )
 
     try:
         csv_content = client.download_30_min_kwh_hdf()

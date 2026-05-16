@@ -22,6 +22,13 @@ class MqttConfig:
 
 
 @dataclass(frozen=True)
+class CaptchaConfig:
+    solver: str = "disabled"
+    two_captcha_api_key: str | None = None
+    two_captcha_timeout_seconds: int = 120
+
+
+@dataclass(frozen=True)
 class MeterReading:
     timestamp: datetime
     import_kwh: float | None = None
@@ -39,6 +46,7 @@ class AppConfig:
     mqtt: MqttConfig
     poll_interval_hours: int
     log_level: str
+    captcha: CaptchaConfig = CaptchaConfig()
 
     @property
     def mprn(self) -> str:
