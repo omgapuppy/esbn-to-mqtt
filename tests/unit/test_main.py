@@ -181,6 +181,24 @@ def test_main_uses_bounded_backoff_after_transient_runtime_error(
     sleep.assert_called_once_with(main.ERROR_RETRY_BACKOFF_SECONDS)
 
 
+def test_main_logs_successful_poll_before_sleeping(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = app_config()
+    sleep = Mock(side_effect=KeyboardInterrupt)
+
+    monkeypatch.setattr(sys, "argv", ["prog"])
+    monkeypatch.setattr(main, "run_once", Mock(return_value=config))
+    monkeypatch.setattr(main.time, "sleep", sleep)
+
+    with caplog.at_level("INFO"), pytest.raises(KeyboardInterrupt):
+        main.main()
+
+    assert "polling cycle completed; sleeping for 21600 seconds" in caplog.text
+    sleep.assert_called_once_with(config.poll_interval_seconds)
+
+
 def test_main_uses_poll_interval_backoff_after_esbn_challenge(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
