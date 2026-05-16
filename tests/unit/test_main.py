@@ -46,6 +46,68 @@ class SuccessfulConnectionPublisher:
         return
 
 
+def test_run_once_publishes_derived_metrics_and_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = app_config()
+    published_messages: list[list[MqttMessage]] = []
+
+    class FakePublisher:
+        def __init__(self, mqtt_config: MqttConfig) -> None:
+            self.mqtt_config = mqtt_config
+
+        def check_connection(self) -> None:
+            return
+
+        def publish_messages(self, messages: list[MqttMessage]) -> None:
+            published_messages.append(messages)
+
+    class FakeEsbnClient:
+        last_auth_path = "login+captcha"
+        captcha_used = True
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            return
+
+        def download_30_min_kwh_hdf(self) -> str:
+            return (
+                "Read Date and End Time,Import kWh,Export kWh\n"
+                "2026-05-16 19:00,0.250,0.050\n"
+                "2026-05-16 19:30,0.750,0.200\n"
+            )
+
+        def close(self) -> None:
+            return
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", FakePublisher)
+    monkeypatch.setattr(main, "EsbnClient", FakeEsbnClient)
+    monkeypatch.setattr(
+        main,
+        "_utc_now",
+        Mock(return_value=datetime(2026, 5, 16, 20, 0, tzinfo=UTC)),
+    )
+
+    main.run_once(tmp_path / "options.json", tmp_path)
+
+    state_message = next(
+        message
+        for message in published_messages[0]
+        if message.topic.endswith("/state")
+    )
+    assert state_message.payload["latest_import_interval_kwh"] == 0.75
+    assert state_message.payload["latest_export_interval_kwh"] == 0.2
+    assert state_message.payload["today_import_kwh"] == 1.0
+    assert state_message.payload["current_month_import_kwh"] == 1.0
+    assert state_message.payload["data_lag_hours"] == 1.0
+    assert state_message.payload["hdf_rows_parsed"] == 2
+    assert state_message.payload["new_interval_values_processed"] == 4
+    assert state_message.payload["captcha_used"] is True
+    assert state_message.payload["auth_path"] == "login+captcha"
+
+
 def test_main_once_swallows_mqtt_publish_error_and_redacts_logs(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

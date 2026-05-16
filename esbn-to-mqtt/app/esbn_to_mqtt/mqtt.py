@@ -11,7 +11,7 @@ from paho.mqtt.client import Client
 from paho.mqtt.enums import CallbackAPIVersion
 
 from .logging import hash_mprn
-from .models import MeterTotals, MqttConfig
+from .models import MeterMetrics, MeterTotals, MqttConfig
 
 APP_NAME = "esbn_to_mqtt"
 SOURCE_NAME = "esb_networks_hdf_30_min_kwh"
@@ -71,21 +71,62 @@ def _discovery_topic(config: MqttConfig, mprn: str, role: str) -> str:
     return f"{config.discovery_prefix}/sensor/{APP_NAME}_{meter_id}/{role}/config"
 
 
-def _discovery_payload(config: MqttConfig, mprn: str, role: str, name: str) -> dict[str, Any]:
+def _sensor_discovery_payload(
+    config: MqttConfig,
+    mprn: str,
+    role: str,
+    name: str,
+    value_key: str,
+    *,
+    device_class: str | None = None,
+    state_class: str | None = None,
+    unit_of_measurement: str | None = None,
+    entity_category: str | None = None,
+    suggested_display_precision: int | None = None,
+) -> dict[str, Any]:
     meter_id = _hashed_meter_id(mprn)
-    return {
+    payload: dict[str, Any] = {
         "availability_topic": availability_topic(config, mprn),
         "device": _device_payload(mprn),
-        "device_class": "energy",
         "name": name,
         "object_id": f"{APP_NAME}_{meter_id}_{role}",
-        "state_class": "total_increasing",
         "state_topic": state_topic(config, mprn),
-        "suggested_display_precision": 3,
         "unique_id": f"{APP_NAME}_{meter_id}_{role}",
-        "unit_of_measurement": "kWh",
-        "value_template": f"{{{{ value_json.{role}_kwh }}}}",
+        "value_template": f"{{{{ value_json.{value_key} }}}}",
     }
+    if device_class is not None:
+        payload["device_class"] = device_class
+    if state_class is not None:
+        payload["state_class"] = state_class
+    if unit_of_measurement is not None:
+        payload["unit_of_measurement"] = unit_of_measurement
+    if entity_category is not None:
+        payload["entity_category"] = entity_category
+    if suggested_display_precision is not None:
+        payload["suggested_display_precision"] = suggested_display_precision
+    return payload
+
+
+def _energy_discovery_payload(
+    config: MqttConfig,
+    mprn: str,
+    role: str,
+    name: str,
+    value_key: str,
+    *,
+    state_class: str,
+) -> dict[str, Any]:
+    return _sensor_discovery_payload(
+        config,
+        mprn,
+        role,
+        name,
+        value_key,
+        device_class="energy",
+        state_class=state_class,
+        unit_of_measurement="kWh",
+        suggested_display_precision=3,
+    )
 
 
 def _last_update_discovery_payload(config: MqttConfig, mprn: str) -> dict[str, Any]:
@@ -107,24 +148,183 @@ def build_discovery_messages(
     messages = [
         MqttMessage(
             topic=_discovery_topic(config, mprn, "import_total"),
-            payload=_discovery_payload(config, mprn, "import_total", "ESBN Import Total"),
+            payload=_energy_discovery_payload(
+                config,
+                mprn,
+                "import_total",
+                "ESBN Import Total",
+                "import_total_kwh",
+                state_class="total_increasing",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "latest_import_interval"),
+            payload=_energy_discovery_payload(
+                config,
+                mprn,
+                "latest_import_interval",
+                "ESBN Latest Interval Import",
+                "latest_import_interval_kwh",
+                state_class="measurement",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "today_import"),
+            payload=_energy_discovery_payload(
+                config,
+                mprn,
+                "today_import",
+                "ESBN Today Import",
+                "today_import_kwh",
+                state_class="total",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "current_month_import"),
+            payload=_energy_discovery_payload(
+                config,
+                mprn,
+                "current_month_import",
+                "ESBN Current Month Import",
+                "current_month_import_kwh",
+                state_class="total",
+            ),
         ),
         MqttMessage(
             topic=_discovery_topic(config, mprn, "last_update"),
             payload=_last_update_discovery_payload(config, mprn),
-        )
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "latest_interval_start"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "latest_interval_start",
+                "ESBN Latest Interval Start",
+                "latest_esbn_interval_start",
+                entity_category="diagnostic",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "data_lag"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "data_lag",
+                "ESBN Data Lag",
+                "data_lag_hours",
+                device_class="duration",
+                state_class="measurement",
+                unit_of_measurement="h",
+                entity_category="diagnostic",
+                suggested_display_precision=2,
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "new_interval_values_processed"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "new_interval_values_processed",
+                "ESBN New Values Processed",
+                "new_interval_values_processed",
+                state_class="measurement",
+                entity_category="diagnostic",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "hdf_rows_parsed"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "hdf_rows_parsed",
+                "ESBN HDF Rows Parsed",
+                "hdf_rows_parsed",
+                state_class="measurement",
+                entity_category="diagnostic",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "captcha_used"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "captcha_used",
+                "ESBN CAPTCHA Used",
+                "captcha_used",
+                entity_category="diagnostic",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "auth_path"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "auth_path",
+                "ESBN Auth Path",
+                "auth_path",
+                entity_category="diagnostic",
+            ),
+        ),
     ]
     if include_export:
-        messages.append(
-            MqttMessage(
-                topic=_discovery_topic(config, mprn, "export_total"),
-                payload=_discovery_payload(config, mprn, "export_total", "ESBN Export Total"),
-            )
+        messages.extend(
+            [
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "export_total"),
+                    payload=_energy_discovery_payload(
+                        config,
+                        mprn,
+                        "export_total",
+                        "ESBN Export Total",
+                        "export_total_kwh",
+                        state_class="total_increasing",
+                    ),
+                ),
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "latest_export_interval"),
+                    payload=_energy_discovery_payload(
+                        config,
+                        mprn,
+                        "latest_export_interval",
+                        "ESBN Latest Interval Export",
+                        "latest_export_interval_kwh",
+                        state_class="measurement",
+                    ),
+                ),
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "today_export"),
+                    payload=_energy_discovery_payload(
+                        config,
+                        mprn,
+                        "today_export",
+                        "ESBN Today Export",
+                        "today_export_kwh",
+                        state_class="total",
+                    ),
+                ),
+                MqttMessage(
+                    topic=_discovery_topic(config, mprn, "current_month_export"),
+                    payload=_energy_discovery_payload(
+                        config,
+                        mprn,
+                        "current_month_export",
+                        "ESBN Current Month Export",
+                        "current_month_export_kwh",
+                        state_class="total",
+                    ),
+                ),
+            ]
         )
     return messages
 
 
-def build_state_message(config: MqttConfig, mprn: str, totals: MeterTotals) -> MqttMessage:
+def build_state_message(
+    config: MqttConfig,
+    mprn: str,
+    totals: MeterTotals,
+    metrics: MeterMetrics | None = None,
+) -> MqttMessage:
     payload: dict[str, Any] = {
         "import_total_kwh": totals.import_total_kwh,
         "last_successful_fetch": datetime.now(UTC).isoformat(),
@@ -134,6 +334,29 @@ def build_state_message(config: MqttConfig, mprn: str, totals: MeterTotals) -> M
         payload["export_total_kwh"] = totals.export_total_kwh
     if totals.last_interval_start is not None:
         payload["last_interval_start"] = totals.last_interval_start.isoformat()
+    if metrics is not None:
+        payload.update(
+            {
+                "latest_import_interval_kwh": metrics.latest_import_interval_kwh,
+                "today_import_kwh": metrics.today_import_kwh,
+                "current_month_import_kwh": metrics.current_month_import_kwh,
+                "data_lag_hours": metrics.data_lag_hours,
+                "hdf_rows_parsed": metrics.hdf_rows_parsed,
+                "new_interval_values_processed": metrics.new_interval_values_processed,
+                "captcha_used": metrics.captcha_used,
+                "auth_path": metrics.auth_path,
+            }
+        )
+        if metrics.latest_export_interval_kwh is not None:
+            payload["latest_export_interval_kwh"] = metrics.latest_export_interval_kwh
+        if metrics.today_export_kwh is not None:
+            payload["today_export_kwh"] = metrics.today_export_kwh
+        if metrics.current_month_export_kwh is not None:
+            payload["current_month_export_kwh"] = metrics.current_month_export_kwh
+        if metrics.latest_esbn_interval_start is not None:
+            payload["latest_esbn_interval_start"] = (
+                metrics.latest_esbn_interval_start.isoformat()
+            )
     return MqttMessage(topic=state_topic(config, mprn), payload=payload)
 
 

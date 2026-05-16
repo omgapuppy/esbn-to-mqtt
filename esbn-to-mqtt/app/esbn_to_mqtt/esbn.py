@@ -74,6 +74,8 @@ class EsbnClient:
         self._confirmed_html = ""
         self._cookie_jar_path = cookie_jar_path
         self._captcha_solver = captcha_solver
+        self._last_auth_path = "unknown"
+        self._captcha_used = False
         self._cookie_jar = MozillaCookieJar(
             str(cookie_jar_path) if cookie_jar_path is not None else None
         )
@@ -95,12 +97,22 @@ class EsbnClient:
     def close(self) -> None:
         self._client.close()
 
+    @property
+    def last_auth_path(self) -> str:
+        return self._last_auth_path
+
+    @property
+    def captcha_used(self) -> bool:
+        return self._captcha_used
+
     def download_30_min_kwh_hdf(self) -> str:
         if (csv_content := self._download_with_existing_session()) is not None:
             self._save_cookies()
             return csv_content
 
         settings = self._load_settings()
+        self._last_auth_path = "login"
+        self._captcha_used = False
         self._submit_credentials(settings["csrf"], settings["transId"])
         self._confirm_sign_in(settings["csrf"], settings["transId"])
         self._complete_form_post()
@@ -118,7 +130,10 @@ class EsbnClient:
             return None
 
         try:
-            return self._download_authenticated_hdf(refresh_root=False)
+            csv_content = self._download_authenticated_hdf(refresh_root=False)
+            self._last_auth_path = "cookie"
+            self._captcha_used = False
+            return csv_content
         except EsbnAuthenticationError:
             return None
 
@@ -231,6 +246,8 @@ class EsbnClient:
         if self._captcha_solver is None:
             raise EsbnChallengeError(CHALLENGE_MESSAGE)
 
+        self._last_auth_path = "login+captcha"
+        self._captcha_used = True
         settings = self._extract_settings(response.text)
         claim_id = self._extract_captcha_claim_id(response.text)
         site_key = self._extract_recaptcha_site_key(response.text, settings)
