@@ -98,6 +98,10 @@ def _record_challenge_cooldown(data_dir: Path) -> None:
 
 def _raise_if_challenge_cooldown_active(config: AppConfig, data_dir: Path) -> None:
     path = _challenge_path(data_dir)
+    if config.captcha.solver != "disabled":
+        _clear_challenge_cooldown(data_dir)
+        return
+
     challenged_at = _read_challenged_at(path)
     if challenged_at is None:
         _clear_challenge_cooldown(data_dir)
@@ -133,6 +137,10 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     LOGGER.info("MQTT connection check succeeded for %s:%s", config.mqtt.host, config.mqtt.port)
 
     _raise_if_challenge_cooldown_active(config, data_dir)
+    captcha_solver = build_captcha_solver(config.captcha)
+    if captcha_solver is not None:
+        LOGGER.info("CAPTCHA solver configured; ESBN challenges will be submitted to 2Captcha")
+
     state_path = data_dir / "state.json"
     state_exists = state_path.exists()
     try:
@@ -144,7 +152,7 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     client = EsbnClient(
         config.esbn,
         cookie_jar_path=_cookie_jar_path(data_dir),
-        captcha_solver=build_captcha_solver(config.captcha),
+        captcha_solver=captcha_solver,
     )
 
     try:

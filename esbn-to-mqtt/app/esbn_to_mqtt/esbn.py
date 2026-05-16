@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import re
 from http.cookiejar import LoadError, MozillaCookieJar
 from io import StringIO
@@ -12,6 +13,8 @@ from bs4 import BeautifulSoup
 
 from .captcha import CaptchaSolveError, CaptchaSolver
 from .models import EsbnCredentials
+
+LOGGER = logging.getLogger(__name__)
 
 BASE_URL = "https://myaccount.esbnetworks.ie"
 ROOT_URL = f"{BASE_URL}/"
@@ -224,6 +227,7 @@ class EsbnClient:
         settings = self._extract_settings(response.text)
         claim_id = self._extract_captcha_claim_id(response.text)
         site_key = self._extract_recaptcha_site_key(response.text, settings)
+        LOGGER.info("ESBN CAPTCHA challenge detected; requesting 2Captcha solution")
         try:
             captcha_token = self._captcha_solver.solve_recaptcha_v2(
                 website_url=str(response.url),
@@ -233,6 +237,7 @@ class EsbnClient:
             raise EsbnChallengeError(f"ESBN CAPTCHA solve failed: {exc}") from exc
 
         self._submit_captcha_token(settings["csrf"], settings["transId"], claim_id, captcha_token)
+        LOGGER.info("2Captcha solution submitted to ESBN")
         confirmed_response = self._get_confirmed(settings["csrf"], settings["transId"])
         if self._is_challenge_body(confirmed_response.text):
             raise EsbnChallengeError("ESBN CAPTCHA challenge remained after solver response")

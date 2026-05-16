@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock
@@ -9,7 +10,7 @@ import pytest
 from esbn_to_mqtt import main
 from esbn_to_mqtt.esbn import EsbnChallengeError, EsbnError
 from esbn_to_mqtt.hdf import HdfParseError
-from esbn_to_mqtt.models import AppConfig, EsbnCredentials, MqttConfig
+from esbn_to_mqtt.models import AppConfig, CaptchaConfig, EsbnCredentials, MqttConfig
 from esbn_to_mqtt.mqtt import MqttMessage, MqttPublishError, build_availability_message
 from esbn_to_mqtt.state import AccumulatorState
 
@@ -229,6 +230,31 @@ def test_run_once_refuses_login_during_challenge_cooldown(
         main.run_once(tmp_path / "options.json", tmp_path)
 
     esbn_client.assert_not_called()
+
+
+def test_challenge_cooldown_is_cleared_when_captcha_solver_is_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = replace(
+        app_config(),
+        captcha=CaptchaConfig(solver="2captcha", two_captcha_api_key="captcha-key"),
+    )
+    challenge_path = tmp_path / "esbn-challenge.json"
+    challenge_path.write_text(
+        '{"challenged_at": "2026-05-14T14:00:00+00:00"}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        main,
+        "_utc_now",
+        Mock(return_value=datetime(2026, 5, 14, 15, 0, tzinfo=UTC)),
+    )
+
+    main._raise_if_challenge_cooldown_active(config, tmp_path)
+
+    assert not challenge_path.exists()
 
 
 def test_run_once_checks_mqtt_before_esbn_challenge_cooldown(
