@@ -48,6 +48,7 @@ class SuccessfulConnectionPublisher:
 
 def test_run_once_publishes_derived_metrics_and_diagnostics(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
     config = replace(
@@ -99,7 +100,8 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
         Mock(return_value=datetime(2026, 5, 16, 20, 0, tzinfo=UTC)),
     )
 
-    main.run_once(tmp_path / "options.json", tmp_path)
+    with caplog.at_level("INFO"):
+        main.run_once(tmp_path / "options.json", tmp_path)
 
     state_message = next(
         message
@@ -121,6 +123,11 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
     assert state_message.payload["new_interval_values_processed"] == 4
     assert state_message.payload["captcha_used"] is True
     assert state_message.payload["auth_path"] == "login+captcha"
+    assert (
+        "ESBN HDF poll result: rows=2 latest_interval_start=2026-05-16T19:00:00+00:00 "
+        "data_lag_hours=1.0 new_interval_values_processed=4 auth_path=login+captcha "
+        "captcha_used=True"
+    ) in caplog.text
 
 
 def test_main_once_swallows_mqtt_publish_error_and_redacts_logs(

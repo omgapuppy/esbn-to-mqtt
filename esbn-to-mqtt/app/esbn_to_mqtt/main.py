@@ -174,6 +174,21 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
             tariff=config.tariff,
             now=_utc_now(),
         )
+        LOGGER.info(
+            "ESBN HDF poll result: rows=%s latest_interval_start=%s "
+            "data_lag_hours=%s new_interval_values_processed=%s auth_path=%s "
+            "captcha_used=%s",
+            metrics.hdf_rows_parsed,
+            (
+                None
+                if metrics.latest_esbn_interval_start is None
+                else metrics.latest_esbn_interval_start.isoformat()
+            ),
+            metrics.data_lag_hours,
+            metrics.new_interval_values_processed,
+            metrics.auth_path,
+            metrics.captcha_used,
+        )
         messages = build_discovery_messages(
             config.mqtt,
             config.mprn,

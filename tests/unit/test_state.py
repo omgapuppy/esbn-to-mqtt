@@ -175,6 +175,68 @@ def test_apply_only_adds_unseen_import_export_interval_ids() -> None:
     )
 
 
+def test_apply_adjusts_totals_when_seen_interval_values_change() -> None:
+    initial_state = AccumulatorState.empty().apply(
+        [
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:00:00"),
+                import_kwh=1.0,
+                export_kwh=0.25,
+            ),
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:30:00"),
+                import_kwh=2.0,
+            ),
+        ]
+    )
+
+    state = initial_state.apply(
+        [
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:00:00"),
+                import_kwh=1.5,
+                export_kwh=0.1,
+            ),
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:30:00"),
+                import_kwh=2.0,
+            ),
+        ]
+    )
+
+    assert state.import_total_kwh == 3.5
+    assert state.export_total_kwh == 0.1
+
+
+def test_apply_records_seen_values_for_legacy_processed_intervals() -> None:
+    initial_state = AccumulatorState(
+        import_total_kwh=3.0,
+        export_total_kwh=None,
+        last_interval_start=datetime.fromisoformat("2024-01-02T00:00:00"),
+        processed_intervals=frozenset({"2024-01-02T00:00:00:import"}),
+    )
+
+    migrated_state = initial_state.apply(
+        [
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:00:00"),
+                import_kwh=1.0,
+            )
+        ]
+    )
+    corrected_state = migrated_state.apply(
+        [
+            MeterReading(
+                timestamp=datetime.fromisoformat("2024-01-02T00:00:00"),
+                import_kwh=1.25,
+            )
+        ]
+    )
+
+    assert migrated_state.import_total_kwh == 3.0
+    assert corrected_state.import_total_kwh == 3.25
+
+
 def test_apply_tariff_costs_only_charges_unseen_import_intervals() -> None:
     tariff = TariffConfig(
         enabled=True,
@@ -218,6 +280,37 @@ def test_apply_tariff_costs_only_charges_unseen_import_intervals() -> None:
             "2026-05-16T16:30:00+00:00:import_cost",
         }
     )
+
+
+def test_apply_tariff_costs_adjusts_total_when_seen_import_values_change() -> None:
+    tariff = TariffConfig(
+        enabled=True,
+        day_rate=0.30,
+        night_rate=0.15,
+        peak_rate=0.45,
+        currency="EUR",
+    )
+    initial_state = AccumulatorState.empty().apply_tariff_costs(
+        [
+            MeterReading(
+                timestamp=datetime.fromisoformat("2026-05-16T16:30:00+00:00"),
+                import_kwh=2.0,
+            )
+        ],
+        tariff,
+    )
+
+    state = initial_state.apply_tariff_costs(
+        [
+            MeterReading(
+                timestamp=datetime.fromisoformat("2026-05-16T16:30:00+00:00"),
+                import_kwh=3.0,
+            )
+        ],
+        tariff,
+    )
+
+    assert state.import_cost_total == 1.35
 
 
 def test_to_totals_returns_matching_meter_totals_with_immutable_processed_intervals() -> None:
@@ -268,9 +361,11 @@ def test_save_creates_parent_directories_and_writes_pretty_sorted_json(tmp_path:
         '  "import_cost_total": 3.33,\n'
         '  "import_total_kwh": 8.75,\n'
         '  "last_interval_start": "2024-01-02T00:30:00",\n'
+        '  "processed_cost_interval_values": {},\n'
         '  "processed_cost_intervals": [\n'
         '    "2024-01-02T00:30:00:import_cost"\n'
         "  ],\n"
+        '  "processed_interval_values": {},\n'
         '  "processed_intervals": [\n'
         '    "2024-01-02T00:30:00:import",\n'
         '    "2024-01-02T00:45:00:export"\n'
