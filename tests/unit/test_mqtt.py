@@ -109,8 +109,9 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     assert "state_class" not in last_update_message.payload
     assert "unit_of_measurement" not in last_update_message.payload
     assert "10000000000" not in str(last_update_message.payload)
-    assert latest_import_message.payload["device_class"] == "energy"
+    assert "device_class" not in latest_import_message.payload
     assert latest_import_message.payload["state_class"] == "measurement"
+    assert latest_import_message.payload["unit_of_measurement"] == "kWh"
     assert latest_import_message.payload["value_template"] == (
         "{{ value_json.latest_import_interval_kwh }}"
     )
@@ -127,12 +128,37 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
         "{{ value_json.hdf_export_stuck_polls }}"
     )
     assert cost_total_message.payload["device_class"] == "monetary"
-    assert cost_total_message.payload["state_class"] == "total_increasing"
+    assert cost_total_message.payload["state_class"] == "total"
     assert cost_total_message.payload["unit_of_measurement"] == "EUR"
     assert cost_total_message.payload["value_template"] == "{{ value_json.import_cost_total }}"
     assert current_rate_message.payload["unit_of_measurement"] == "EUR/kWh"
     assert current_rate_message.payload["value_template"] == "{{ value_json.current_tariff_rate }}"
     assert len(messages) == 22
+
+
+def test_build_discovery_messages_use_valid_home_assistant_state_classes() -> None:
+    messages = build_discovery_messages(
+        mqtt_config(),
+        "10000000000",
+        include_export=True,
+        include_tariff=True,
+        tariff_currency="EUR",
+    )
+    invalid_energy_measurements = [
+        message
+        for message in messages
+        if message.payload.get("device_class") == "energy"
+        and message.payload.get("state_class") == "measurement"
+    ]
+    invalid_monetary_totals = [
+        message
+        for message in messages
+        if message.payload.get("device_class") == "monetary"
+        and message.payload.get("state_class") == "total_increasing"
+    ]
+
+    assert invalid_energy_measurements == []
+    assert invalid_monetary_totals == []
 
 
 def test_build_discovery_messages_omits_export_derived_sensors_without_export_data() -> None:

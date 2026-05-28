@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Fix Home Assistant discovery metadata for monetary cost totals and latest interval kWh sensors.
+- Add CODEOWNERS so protected branches can require owner review.
+
 ## 0.4.2
 
 - Add HDF export stuck diagnostics when ESBN row counts fall while the latest interval does not advance.

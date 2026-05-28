@@ -129,6 +129,25 @@ def _energy_discovery_payload(
     )
 
 
+def _interval_energy_discovery_payload(
+    config: MqttConfig,
+    mprn: str,
+    role: str,
+    name: str,
+    value_key: str,
+) -> dict[str, Any]:
+    return _sensor_discovery_payload(
+        config,
+        mprn,
+        role,
+        name,
+        value_key,
+        state_class="measurement",
+        unit_of_measurement="kWh",
+        suggested_display_precision=3,
+    )
+
+
 def _last_update_discovery_payload(config: MqttConfig, mprn: str) -> dict[str, Any]:
     meter_id = _hashed_meter_id(mprn)
     return {
@@ -164,13 +183,12 @@ def build_discovery_messages(
         ),
         MqttMessage(
             topic=_discovery_topic(config, mprn, "latest_import_interval"),
-            payload=_energy_discovery_payload(
+            payload=_interval_energy_discovery_payload(
                 config,
                 mprn,
                 "latest_import_interval",
                 "ESBN Latest Interval Import",
                 "latest_import_interval_kwh",
-                state_class="measurement",
             ),
         ),
         MqttMessage(
@@ -311,13 +329,12 @@ def build_discovery_messages(
                 ),
                 MqttMessage(
                     topic=_discovery_topic(config, mprn, "latest_export_interval"),
-                    payload=_energy_discovery_payload(
+                    payload=_interval_energy_discovery_payload(
                         config,
                         mprn,
                         "latest_export_interval",
                         "ESBN Latest Interval Export",
                         "latest_export_interval_kwh",
-                        state_class="measurement",
                     ),
                 ),
                 MqttMessage(
@@ -356,7 +373,7 @@ def build_discovery_messages(
                         "ESBN Import Cost Total",
                         "import_cost_total",
                         device_class="monetary",
-                        state_class="total_increasing",
+                        state_class="total",
                         unit_of_measurement=tariff_currency,
                         suggested_display_precision=2,
                     ),
