@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- Add HDF export stuck diagnostics when ESBN row counts fall while the latest interval does not advance.
+- Log a warning after repeated stuck HDF export observations.
+
 ## 0.4.1
 
 - Adjust accumulated import, export, and tariff cost totals when ESBN revises already-seen interval values.

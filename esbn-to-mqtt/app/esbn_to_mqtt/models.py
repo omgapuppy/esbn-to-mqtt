@@ -99,6 +99,8 @@ class MeterMetrics:
     new_interval_values_processed: int
     captcha_used: bool
     auth_path: str
+    hdf_export_stuck: bool = False
+    hdf_export_stuck_polls: int = 0
     today_import_cost: float | None = None
     current_month_import_cost: float | None = None
     current_tariff: str | None = None

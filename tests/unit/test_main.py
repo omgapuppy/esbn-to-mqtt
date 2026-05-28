@@ -121,13 +121,84 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
     assert state_message.payload["data_lag_hours"] == 1.0
     assert state_message.payload["hdf_rows_parsed"] == 2
     assert state_message.payload["new_interval_values_processed"] == 4
+    assert state_message.payload["hdf_export_stuck"] is False
+    assert state_message.payload["hdf_export_stuck_polls"] == 0
     assert state_message.payload["captcha_used"] is True
     assert state_message.payload["auth_path"] == "login+captcha"
     assert (
         "ESBN HDF poll result: rows=2 latest_interval_start=2026-05-16T19:00:00+00:00 "
-        "data_lag_hours=1.0 new_interval_values_processed=4 auth_path=login+captcha "
-        "captcha_used=True"
+        "data_lag_hours=1.0 new_interval_values_processed=4 hdf_export_stuck=False "
+        "hdf_export_stuck_polls=0 auth_path=login+captcha captcha_used=True"
     ) in caplog.text
+
+
+def test_run_once_warns_and_publishes_stuck_export_when_row_count_drops_without_new_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    config = app_config()
+    latest_interval = datetime(2026, 5, 24, 13, 30, tzinfo=UTC)
+    AccumulatorState(
+        import_total_kwh=3.0,
+        export_total_kwh=None,
+        last_interval_start=latest_interval,
+        processed_intervals=frozenset({f"{latest_interval.isoformat()}:import"}),
+        last_hdf_row_count=3,
+        last_hdf_latest_interval_start=latest_interval,
+        hdf_export_stuck_polls=1,
+    ).save(tmp_path / "state.json")
+    published_messages: list[list[MqttMessage]] = []
+
+    class FakePublisher:
+        def __init__(self, mqtt_config: MqttConfig) -> None:
+            self.mqtt_config = mqtt_config
+
+        def check_connection(self) -> None:
+            return
+
+        def publish_messages(self, messages: list[MqttMessage]) -> None:
+            published_messages.append(messages)
+
+    class FakeEsbnClient:
+        last_auth_path = "login"
+        captcha_used = False
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            return
+
+        def download_30_min_kwh_hdf(self) -> str:
+            return (
+                "Read Date and End Time,Import kWh\n"
+                "2026-05-24 14:00,1.000\n"
+                "2026-05-24 14:00,1.000\n"
+            )
+
+        def close(self) -> None:
+            return
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", FakePublisher)
+    monkeypatch.setattr(main, "EsbnClient", FakeEsbnClient)
+    monkeypatch.setattr(
+        main,
+        "_utc_now",
+        Mock(return_value=datetime(2026, 5, 28, 18, 30, tzinfo=UTC)),
+    )
+
+    with caplog.at_level("WARNING"):
+        main.run_once(tmp_path / "options.json", tmp_path)
+
+    state_message = next(
+        message
+        for message in published_messages[0]
+        if message.topic.endswith("/state")
+    )
+    assert state_message.payload["hdf_export_stuck"] is True
+    assert state_message.payload["hdf_export_stuck_polls"] == 2
+    assert "ESBN HDF export appears stuck" in caplog.text
+    assert "latest_interval_start=2026-05-24T13:30:00+00:00" in caplog.text
 
 
 def test_main_once_swallows_mqtt_publish_error_and_redacts_logs(

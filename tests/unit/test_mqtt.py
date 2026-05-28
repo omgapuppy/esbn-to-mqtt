@@ -43,6 +43,8 @@ def metrics() -> MeterMetrics:
         data_lag_hours=1.5,
         hdf_rows_parsed=96,
         new_interval_values_processed=2,
+        hdf_export_stuck=False,
+        hdf_export_stuck_polls=0,
         captcha_used=True,
         auth_path="login+captcha",
         today_import_cost=1.23,
@@ -68,6 +70,14 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     )
     data_lag_message = next(message for message in messages if "data_lag" in message.topic)
     auth_path_message = next(message for message in messages if "auth_path" in message.topic)
+    export_stuck_message = next(
+        message for message in messages if "hdf_export_stuck/config" in message.topic
+    )
+    export_stuck_polls_message = next(
+        message
+        for message in messages
+        if "hdf_export_stuck_polls/config" in message.topic
+    )
     cost_total_message = next(
         message for message in messages if "import_cost_total" in message.topic
     )
@@ -109,13 +119,20 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     assert data_lag_message.payload["entity_category"] == "diagnostic"
     assert auth_path_message.payload["entity_category"] == "diagnostic"
     assert auth_path_message.payload["value_template"] == "{{ value_json.auth_path }}"
+    assert export_stuck_message.payload["entity_category"] == "diagnostic"
+    assert export_stuck_message.payload["value_template"] == "{{ value_json.hdf_export_stuck }}"
+    assert export_stuck_polls_message.payload["state_class"] == "measurement"
+    assert export_stuck_polls_message.payload["entity_category"] == "diagnostic"
+    assert export_stuck_polls_message.payload["value_template"] == (
+        "{{ value_json.hdf_export_stuck_polls }}"
+    )
     assert cost_total_message.payload["device_class"] == "monetary"
     assert cost_total_message.payload["state_class"] == "total_increasing"
     assert cost_total_message.payload["unit_of_measurement"] == "EUR"
     assert cost_total_message.payload["value_template"] == "{{ value_json.import_cost_total }}"
     assert current_rate_message.payload["unit_of_measurement"] == "EUR/kWh"
     assert current_rate_message.payload["value_template"] == "{{ value_json.current_tariff_rate }}"
-    assert len(messages) == 20
+    assert len(messages) == 22
 
 
 def test_build_discovery_messages_omits_export_derived_sensors_without_export_data() -> None:
@@ -126,7 +143,10 @@ def test_build_discovery_messages_omits_export_derived_sensors_without_export_da
         include_tariff=False,
     )
 
-    assert all("export" not in message.topic for message in messages)
+    assert all(
+        "export" not in message.topic or "hdf_export_stuck" in message.topic
+        for message in messages
+    )
     assert all("cost" not in message.topic for message in messages)
     assert any("latest_import_interval" in message.topic for message in messages)
     assert any("today_import" in message.topic for message in messages)
@@ -150,6 +170,8 @@ def test_build_state_message_contains_totals_derived_metrics_and_diagnostics() -
     assert message.payload["data_lag_hours"] == 1.5
     assert message.payload["hdf_rows_parsed"] == 96
     assert message.payload["new_interval_values_processed"] == 2
+    assert message.payload["hdf_export_stuck"] is False
+    assert message.payload["hdf_export_stuck_polls"] == 0
     assert message.payload["captcha_used"] is True
     assert message.payload["auth_path"] == "login+captcha"
     assert message.payload["today_import_cost"] == 1.23

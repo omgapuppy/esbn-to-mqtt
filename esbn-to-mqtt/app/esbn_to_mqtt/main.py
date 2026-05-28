@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -162,7 +163,6 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
         processed_before = accumulator.processed_intervals
         accumulator = accumulator.apply(readings)
         accumulator = accumulator.apply_tariff_costs(readings, config.tariff)
-        accumulator.save(state_path)
 
         totals = accumulator.to_totals()
         metrics = build_meter_metrics(
@@ -174,10 +174,20 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
             tariff=config.tariff,
             now=_utc_now(),
         )
+        accumulator = accumulator.record_hdf_observation(
+            row_count=metrics.hdf_rows_parsed,
+            latest_interval_start=metrics.latest_esbn_interval_start,
+        )
+        accumulator.save(state_path)
+        metrics = replace(
+            metrics,
+            hdf_export_stuck=accumulator.hdf_export_stuck,
+            hdf_export_stuck_polls=accumulator.hdf_export_stuck_polls,
+        )
         LOGGER.info(
             "ESBN HDF poll result: rows=%s latest_interval_start=%s "
-            "data_lag_hours=%s new_interval_values_processed=%s auth_path=%s "
-            "captcha_used=%s",
+            "data_lag_hours=%s new_interval_values_processed=%s "
+            "hdf_export_stuck=%s hdf_export_stuck_polls=%s auth_path=%s captcha_used=%s",
             metrics.hdf_rows_parsed,
             (
                 None
@@ -186,9 +196,23 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
             ),
             metrics.data_lag_hours,
             metrics.new_interval_values_processed,
+            metrics.hdf_export_stuck,
+            metrics.hdf_export_stuck_polls,
             metrics.auth_path,
             metrics.captcha_used,
         )
+        if metrics.hdf_export_stuck:
+            LOGGER.warning(
+                "ESBN HDF export appears stuck: latest_interval_start=%s "
+                "row_count=%s stuck_polls=%s",
+                (
+                    None
+                    if metrics.latest_esbn_interval_start is None
+                    else metrics.latest_esbn_interval_start.isoformat()
+                ),
+                metrics.hdf_rows_parsed,
+                metrics.hdf_export_stuck_polls,
+            )
         messages = build_discovery_messages(
             config.mqtt,
             config.mprn,

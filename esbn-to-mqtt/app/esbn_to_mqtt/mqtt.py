@@ -250,6 +250,29 @@ def build_discovery_messages(
             ),
         ),
         MqttMessage(
+            topic=_discovery_topic(config, mprn, "hdf_export_stuck"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "hdf_export_stuck",
+                "ESBN HDF Export Stuck",
+                "hdf_export_stuck",
+                entity_category="diagnostic",
+            ),
+        ),
+        MqttMessage(
+            topic=_discovery_topic(config, mprn, "hdf_export_stuck_polls"),
+            payload=_sensor_discovery_payload(
+                config,
+                mprn,
+                "hdf_export_stuck_polls",
+                "ESBN HDF Export Stuck Polls",
+                "hdf_export_stuck_polls",
+                state_class="measurement",
+                entity_category="diagnostic",
+            ),
+        ),
+        MqttMessage(
             topic=_discovery_topic(config, mprn, "captcha_used"),
             payload=_sensor_discovery_payload(
                 config,
@@ -419,6 +442,8 @@ def build_state_message(
                 "data_lag_hours": metrics.data_lag_hours,
                 "hdf_rows_parsed": metrics.hdf_rows_parsed,
                 "new_interval_values_processed": metrics.new_interval_values_processed,
+                "hdf_export_stuck": metrics.hdf_export_stuck,
+                "hdf_export_stuck_polls": metrics.hdf_export_stuck_polls,
                 "captcha_used": metrics.captcha_used,
                 "auth_path": metrics.auth_path,
             }

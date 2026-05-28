@@ -41,6 +41,8 @@ The app also publishes dashboard and diagnostic sensors:
 - `ESBN Latest Interval Start`
 - `ESBN New Values Processed`
 - `ESBN HDF Rows Parsed`
+- `ESBN HDF Export Stuck`
+- `ESBN HDF Export Stuck Polls`
 - `ESBN CAPTCHA Used`
 - `ESBN Auth Path`
 
@@ -69,6 +71,8 @@ The app calculates cost from each 30-minute import interval and stores processed
 The app now fetches live ESBN data during each poll. Freshness depends on the source portal exposing updated readings and on the configured polling interval, so new consumption values can still lag behind the meter by a few hours.
 
 The app stores ESBN session cookies in its Home Assistant app data directory and reuses them on later polls. This avoids a full username/password login on every poll when ESBN keeps the session valid.
+
+If the latest ESBN interval does not advance while older rows keep falling out of the HDF export, the app increments `ESBN HDF Export Stuck Polls` and sets `ESBN HDF Export Stuck` after repeated observations. This usually means the ESBN HDF export endpoint is stale even though polling, login, and MQTT publishing are working.
 
 ## CAPTCHA Solving
 

@@ -11,6 +11,8 @@ from typing import Self
 from .models import MeterReading, MeterTotals, TariffConfig
 from .tariff import classify_tariff, tariff_rate
 
+HDF_EXPORT_STUCK_WARNING_POLLS = 2
+
 
 @dataclass(frozen=True)
 class AccumulatorState:
@@ -22,6 +24,9 @@ class AccumulatorState:
     import_cost_total: float = 0.0
     processed_cost_intervals: frozenset[str] = field(default_factory=frozenset)
     processed_cost_interval_values: Mapping[str, float] = field(default_factory=dict)
+    last_hdf_row_count: int | None = None
+    last_hdf_latest_interval_start: datetime | None = None
+    hdf_export_stuck_polls: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "processed_intervals", frozenset(self.processed_intervals))
@@ -59,6 +64,9 @@ class AccumulatorState:
             import_cost_total=0.0,
             processed_cost_intervals=frozenset(),
             processed_cost_interval_values={},
+            last_hdf_row_count=None,
+            last_hdf_latest_interval_start=None,
+            hdf_export_stuck_polls=0,
         )
 
     @classmethod
@@ -78,8 +86,19 @@ class AccumulatorState:
         processed_interval_values = data.get("processed_interval_values", {})
         processed_cost_intervals = data.get("processed_cost_intervals", [])
         processed_cost_interval_values = data.get("processed_cost_interval_values", {})
+        last_hdf_row_count = data.get("last_hdf_row_count")
+        last_hdf_latest_interval = data.get("last_hdf_latest_interval_start")
+        hdf_export_stuck_polls = data.get("hdf_export_stuck_polls", 0)
         if last_interval is not None and not isinstance(last_interval, str):
             raise ValueError("state last_interval_start must be a string or null")
+        if last_hdf_latest_interval is not None and not isinstance(
+            last_hdf_latest_interval, str
+        ):
+            raise ValueError("state last_hdf_latest_interval_start must be a string or null")
+        if last_hdf_row_count is not None and not isinstance(last_hdf_row_count, int):
+            raise ValueError("state last_hdf_row_count must be an integer or null")
+        if not isinstance(hdf_export_stuck_polls, int):
+            raise ValueError("state hdf_export_stuck_polls must be an integer")
         if not isinstance(processed_intervals, list) or not all(
             isinstance(interval, str) for interval in processed_intervals
         ):
@@ -111,6 +130,13 @@ class AccumulatorState:
                 last_interval_start=(
                     None if last_interval is None else datetime.fromisoformat(last_interval)
                 ),
+                last_hdf_latest_interval_start=(
+                    None
+                    if last_hdf_latest_interval is None
+                    else datetime.fromisoformat(last_hdf_latest_interval)
+                ),
+                last_hdf_row_count=last_hdf_row_count,
+                hdf_export_stuck_polls=hdf_export_stuck_polls,
                 processed_intervals=frozenset(processed_intervals),
                 processed_interval_values={
                     interval: float(value)
@@ -124,6 +150,10 @@ class AccumulatorState:
             )
         except (TypeError, ValueError) as exc:
             raise ValueError("state file contained invalid accumulator values") from exc
+
+    @property
+    def hdf_export_stuck(self) -> bool:
+        return self.hdf_export_stuck_polls >= HDF_EXPORT_STUCK_WARNING_POLLS
 
     def apply(self, readings: list[MeterReading]) -> Self:
         import_total = self.import_total_kwh
@@ -174,6 +204,9 @@ class AccumulatorState:
             import_cost_total=self.import_cost_total,
             processed_cost_intervals=self.processed_cost_intervals,
             processed_cost_interval_values=self.processed_cost_interval_values,
+            last_hdf_row_count=self.last_hdf_row_count,
+            last_hdf_latest_interval_start=self.last_hdf_latest_interval_start,
+            hdf_export_stuck_polls=self.hdf_export_stuck_polls,
         )
 
     def apply_tariff_costs(self, readings: list[MeterReading], tariff: TariffConfig) -> Self:
@@ -211,6 +244,36 @@ class AccumulatorState:
             import_cost_total=round(cost_total, 6),
             processed_cost_intervals=frozenset(processed),
             processed_cost_interval_values=processed_values,
+            last_hdf_row_count=self.last_hdf_row_count,
+            last_hdf_latest_interval_start=self.last_hdf_latest_interval_start,
+            hdf_export_stuck_polls=self.hdf_export_stuck_polls,
+        )
+
+    def record_hdf_observation(
+        self,
+        *,
+        row_count: int,
+        latest_interval_start: datetime | None,
+    ) -> Self:
+        stuck_poll = (
+            latest_interval_start is not None
+            and self.last_hdf_latest_interval_start == latest_interval_start
+            and self.last_hdf_row_count is not None
+            and row_count < self.last_hdf_row_count
+        )
+        stuck_polls = self.hdf_export_stuck_polls + 1 if stuck_poll else 0
+        return type(self)(
+            import_total_kwh=self.import_total_kwh,
+            export_total_kwh=self.export_total_kwh,
+            last_interval_start=self.last_interval_start,
+            processed_intervals=self.processed_intervals,
+            processed_interval_values=self.processed_interval_values,
+            import_cost_total=self.import_cost_total,
+            processed_cost_intervals=self.processed_cost_intervals,
+            processed_cost_interval_values=self.processed_cost_interval_values,
+            last_hdf_row_count=row_count,
+            last_hdf_latest_interval_start=latest_interval_start,
+            hdf_export_stuck_polls=stuck_polls,
         )
 
     def to_totals(self) -> MeterTotals:
@@ -236,6 +299,13 @@ class AccumulatorState:
                         if self.last_interval_start is None
                         else self.last_interval_start.isoformat()
                     ),
+                    "last_hdf_latest_interval_start": (
+                        None
+                        if self.last_hdf_latest_interval_start is None
+                        else self.last_hdf_latest_interval_start.isoformat()
+                    ),
+                    "last_hdf_row_count": self.last_hdf_row_count,
+                    "hdf_export_stuck_polls": self.hdf_export_stuck_polls,
                     "processed_cost_interval_values": dict(
                         self.processed_cost_interval_values
                     ),

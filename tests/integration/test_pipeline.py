@@ -22,12 +22,13 @@ def test_fixture_to_mqtt_messages_pipeline() -> None:
 
     discovery_topics = {message.topic for message in discovery}
 
-    assert len(discovery) == 15
+    assert len(discovery) == 17
     assert any("import_total" in topic for topic in discovery_topics)
     assert any("latest_import_interval" in topic for topic in discovery_topics)
     assert any("today_import" in topic for topic in discovery_topics)
     assert any("current_month_import" in topic for topic in discovery_topics)
     assert any("data_lag" in topic for topic in discovery_topics)
+    assert any("hdf_export_stuck" in topic for topic in discovery_topics)
     assert any("auth_path" in topic for topic in discovery_topics)
     assert state.payload["import_total_kwh"] == 0.45
     assert state.payload["export_total_kwh"] == 0.03

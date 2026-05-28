@@ -18,6 +18,10 @@ def test_empty_returns_expected_default_state() -> None:
     assert state.last_interval_start is None
     assert state.processed_intervals == frozenset()
     assert state.processed_cost_intervals == frozenset()
+    assert state.last_hdf_row_count is None
+    assert state.last_hdf_latest_interval_start is None
+    assert state.hdf_export_stuck_polls == 0
+    assert state.hdf_export_stuck is False
 
 
 def test_load_missing_path_returns_empty_state(tmp_path: Path) -> None:
@@ -313,6 +317,51 @@ def test_apply_tariff_costs_adjusts_total_when_seen_import_values_change() -> No
     assert state.import_cost_total == 1.35
 
 
+def test_record_hdf_observation_counts_stuck_export_when_rows_drop_without_new_latest() -> None:
+    latest = datetime.fromisoformat("2026-05-24T13:30:00+00:00")
+    state = AccumulatorState.empty().record_hdf_observation(
+        row_count=34890,
+        latest_interval_start=latest,
+    )
+
+    first_stuck_poll = state.record_hdf_observation(
+        row_count=34842,
+        latest_interval_start=latest,
+    )
+    second_stuck_poll = first_stuck_poll.record_hdf_observation(
+        row_count=34794,
+        latest_interval_start=latest,
+    )
+
+    assert first_stuck_poll.hdf_export_stuck_polls == 1
+    assert first_stuck_poll.hdf_export_stuck is False
+    assert second_stuck_poll.hdf_export_stuck_polls == 2
+    assert second_stuck_poll.hdf_export_stuck is True
+
+
+def test_record_hdf_observation_resets_stuck_count_when_latest_advances() -> None:
+    state = AccumulatorState(
+        import_total_kwh=1.0,
+        export_total_kwh=None,
+        last_interval_start=datetime.fromisoformat("2026-05-24T13:30:00+00:00"),
+        last_hdf_row_count=34794,
+        last_hdf_latest_interval_start=datetime.fromisoformat("2026-05-24T13:30:00+00:00"),
+        hdf_export_stuck_polls=3,
+    )
+
+    updated_state = state.record_hdf_observation(
+        row_count=34842,
+        latest_interval_start=datetime.fromisoformat("2026-05-25T13:30:00+00:00"),
+    )
+
+    assert updated_state.last_hdf_row_count == 34842
+    assert updated_state.last_hdf_latest_interval_start == datetime.fromisoformat(
+        "2026-05-25T13:30:00+00:00"
+    )
+    assert updated_state.hdf_export_stuck_polls == 0
+    assert updated_state.hdf_export_stuck is False
+
+
 def test_to_totals_returns_matching_meter_totals_with_immutable_processed_intervals() -> None:
     state = AccumulatorState(
         import_total_kwh=9.5,
@@ -358,8 +407,11 @@ def test_save_creates_parent_directories_and_writes_pretty_sorted_json(tmp_path:
     assert path.read_text(encoding="utf-8") == (
         '{\n'
         '  "export_total_kwh": 1.5,\n'
+        '  "hdf_export_stuck_polls": 0,\n'
         '  "import_cost_total": 3.33,\n'
         '  "import_total_kwh": 8.75,\n'
+        '  "last_hdf_latest_interval_start": null,\n'
+        '  "last_hdf_row_count": null,\n'
         '  "last_interval_start": "2024-01-02T00:30:00",\n'
         '  "processed_cost_interval_values": {},\n'
         '  "processed_cost_intervals": [\n'

@@ -1,7 +1,7 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/base:latest
 FROM ${BUILD_FROM}
 
-ARG BUILD_VERSION=0.4.1
+ARG BUILD_VERSION=0.4.2
 ARG BUILD_ARCH=amd64
 
 LABEL \
