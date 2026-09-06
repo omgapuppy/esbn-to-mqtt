@@ -110,15 +110,16 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
     )
     assert state_message.payload["latest_import_interval_kwh"] == 0.75
     assert state_message.payload["latest_export_interval_kwh"] == 0.2
-    assert state_message.payload["import_cost_total"] == 0.3
-    assert state_message.payload["today_import_cost"] == 0.3
-    assert state_message.payload["current_month_import_cost"] == 0.3
+    # 18:30-19:00 Irish local falls in the 17:00-19:00 peak band, 19:00-19:30 does not.
+    assert state_message.payload["import_cost_total"] == 0.3375
+    assert state_message.payload["today_import_cost"] == 0.3375
+    assert state_message.payload["current_month_import_cost"] == 0.3375
     assert state_message.payload["current_tariff"] == "day"
     assert state_message.payload["current_tariff_rate"] == 0.30
     assert state_message.payload["tariff_currency"] == "EUR"
     assert state_message.payload["today_import_kwh"] == 1.0
     assert state_message.payload["current_month_import_kwh"] == 1.0
-    assert state_message.payload["data_lag_hours"] == 1.0
+    assert state_message.payload["data_lag_hours"] == 2.0
     assert state_message.payload["hdf_rows_parsed"] == 2
     assert state_message.payload["new_interval_values_processed"] == 4
     assert state_message.payload["hdf_export_stuck"] is False
@@ -126,8 +127,8 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
     assert state_message.payload["captcha_used"] is True
     assert state_message.payload["auth_path"] == "login+captcha"
     assert (
-        "ESBN HDF poll result: rows=2 latest_interval_start=2026-05-16T19:00:00+00:00 "
-        "data_lag_hours=1.0 new_interval_values_processed=4 hdf_export_stuck=False "
+        "ESBN HDF poll result: rows=2 latest_interval_start=2026-05-16T18:00:00+00:00 "
+        "data_lag_hours=2.0 new_interval_values_processed=4 hdf_export_stuck=False "
         "hdf_export_stuck_polls=0 auth_path=login+captcha captcha_used=True"
     ) in caplog.text
 
@@ -138,7 +139,7 @@ def test_run_once_warns_and_publishes_stuck_export_when_row_count_drops_without_
     tmp_path: Path,
 ) -> None:
     config = app_config()
-    latest_interval = datetime(2026, 5, 24, 13, 30, tzinfo=UTC)
+    latest_interval = datetime(2026, 5, 24, 12, 30, tzinfo=UTC)
     AccumulatorState(
         import_total_kwh=3.0,
         export_total_kwh=None,
@@ -198,7 +199,7 @@ def test_run_once_warns_and_publishes_stuck_export_when_row_count_drops_without_
     assert state_message.payload["hdf_export_stuck"] is True
     assert state_message.payload["hdf_export_stuck_polls"] == 2
     assert "ESBN HDF export appears stuck" in caplog.text
-    assert "latest_interval_start=2026-05-24T13:30:00+00:00" in caplog.text
+    assert "latest_interval_start=2026-05-24T12:30:00+00:00" in caplog.text
 
 
 def test_main_once_swallows_mqtt_publish_error_and_redacts_logs(

@@ -4,14 +4,22 @@ import csv
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from io import StringIO
+from zoneinfo import ZoneInfo
 
 from .models import MeterReading
+
+# ESBN stamps the HDF in Irish wall-clock time, not UTC.
+LOCAL_TZ = ZoneInfo("Europe/Dublin")
+TIMESTAMP_FORMATS = ("%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M", "%d-%m-%Y %H:%M")
 
 DATE_COLUMNS = ("Read Date and End Time", "Read Date", "Date")
 IMPORT_COLUMNS = ("Import kWh", "Consumption kWh", "kWh", "Active Import kWh")
 EXPORT_COLUMNS = ("Export kWh", "Active Export kWh")
 READ_VALUE_COLUMN = "Read Value"
 READ_TYPE_COLUMN = "Read Type"
+
+# (local interval end, import kWh, export kWh, quality)
+_ParsedRow = tuple[datetime, float | None, float | None, str | None]
 
 
 class HdfParseError(ValueError):
@@ -71,14 +79,49 @@ def _parse_float(value: str | None, column: str | None, line_num: int) -> float 
         ) from exc
 
 
-def _parse_end_time(value: str) -> datetime:
-    for fmt in ("%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M", "%d-%m-%Y %H:%M"):
+def _parse_local_end_time(value: str) -> datetime:
+    for fmt in TIMESTAMP_FORMATS:
         try:
-            end_time = datetime.strptime(value.strip(), fmt).replace(tzinfo=UTC)
-            return end_time - timedelta(minutes=30)
+            return datetime.strptime(value.strip(), fmt)
         except ValueError:
             continue
     raise HdfParseError(f"unsupported HDF timestamp format: {value!r}")
+
+
+def _interval_start(local_end: datetime, fold: int) -> datetime:
+    """Irish wall-clock interval END -> UTC interval START."""
+    aware_end = local_end.replace(tzinfo=LOCAL_TZ, fold=fold)
+    return aware_end.astimezone(UTC) - timedelta(minutes=30)
+
+
+def _fold_flags(local_ends: Sequence[datetime]) -> list[int]:
+    """Disambiguate the autumn repeated hour.
+
+    On the October transition each wall-clock label between 01:00 and 01:59
+    happens twice, once on IST and once on GMT, an hour apart in real time.
+    ESBN serves the file newest-first, so the first of a repeated pair is the
+    later instant. The ordering direction is read off the data.
+    """
+    if len(local_ends) < 2:
+        return [0] * len(local_ends)
+
+    descending = local_ends[0] > local_ends[-1]
+    occurrences: dict[datetime, int] = {}
+    for end in local_ends:
+        occurrences[end] = occurrences.get(end, 0) + 1
+
+    seen: dict[datetime, int] = {}
+    flags: list[int] = []
+    for end in local_ends:
+        index = seen.get(end, 0)
+        seen[end] = index + 1
+        if occurrences[end] < 2:
+            flags.append(0)
+        elif descending:
+            flags.append(min(occurrences[end] - 1 - index, 1))
+        else:
+            flags.append(min(index, 1))
+    return flags
 
 
 def parse_hdf_csv(content: str) -> list[MeterReading]:
@@ -94,7 +137,7 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
             "HDF CSV is missing a supported import or export kWh column"
         )
 
-    readings: list[MeterReading] = []
+    parsed: list[_ParsedRow] = []
     for row in reader:
         date_value = _first_present(row, DATE_COLUMNS)
         if date_value is None:
@@ -118,13 +161,18 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
         if import_kwh is None and export_kwh is None:
             continue
 
-        readings.append(
-            MeterReading(
-                timestamp=_parse_end_time(date_value),
-                import_kwh=import_kwh,
-                export_kwh=export_kwh,
-                quality=quality,
-            )
+        parsed.append((_parse_local_end_time(date_value), import_kwh, export_kwh, quality))
+
+    flags = _fold_flags([local_end for local_end, _, _, _ in parsed])
+
+    readings = [
+        MeterReading(
+            timestamp=_interval_start(local_end, fold),
+            import_kwh=import_kwh,
+            export_kwh=export_kwh,
+            quality=quality,
         )
+        for (local_end, import_kwh, export_kwh, quality), fold in zip(parsed, flags, strict=True)
+    ]
 
     return sorted(readings, key=lambda reading: reading.timestamp)
