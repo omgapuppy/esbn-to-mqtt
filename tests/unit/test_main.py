@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -131,6 +132,99 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
         "data_lag_hours=2.0 new_interval_values_processed=4 hdf_export_stuck=False "
         "hdf_export_stuck_polls=0 auth_path=login+captcha captcha_used=True"
     ) in caplog.text
+
+
+@pytest.mark.parametrize("first_failure", [None, "download", "backup", "publish"])
+def test_run_once_migrates_existing_state_and_retries_safely(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, first_failure: str | None,
+) -> None:
+    config = replace(
+        app_config(),
+        tariff=TariffConfig(enabled=True, day_rate=0.3, night_rate=0.1, peak_rate=0.5),
+    )
+    state_path = tmp_path / "state.json"
+    original = json.dumps({
+        "import_total_kwh": 101.0,
+        "export_total_kwh": 50.1,
+        "import_cost_total": 25.3,
+        "last_interval_start": "2026-05-16T18:30:00+00:00",
+        "last_hdf_latest_interval_start": "2026-05-16T18:30:00+00:00",
+        "last_hdf_row_count": 1,
+        "processed_intervals": [
+            "2026-05-16T18:30:00+00:00:import", "2026-05-16T18:30:00+00:00:export",
+        ],
+        "processed_interval_values": {
+            "2026-05-16T18:30:00+00:00:import": 1.0,
+            "2026-05-16T18:30:00+00:00:export": 0.1,
+        },
+        "processed_cost_intervals": ["2026-05-16T18:30:00+00:00:import_cost"],
+        "processed_cost_interval_values": {"2026-05-16T18:30:00+00:00:import_cost": 0.3},
+    })
+    state_path.write_text(original)
+    backup_path = tmp_path / "state.json.before-local-time"
+    published: list[MqttMessage] = []
+    failure = first_failure
+
+    class FakePublisher(SuccessfulConnectionPublisher):
+        def publish_messages(self, messages: list[MqttMessage]) -> None:
+            if failure == "publish":
+                raise MqttPublishError("publish failed")
+            published.extend(messages)
+
+    class FakeEsbnClient:
+        last_auth_path = "cookies"
+        captcha_used = False
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def download_30_min_kwh_hdf(self) -> str:
+            if failure == "download":
+                raise EsbnError("download failed")
+            return "Read Date and End Time,Import kWh,Export kWh\n2026-05-16 19:00,1.0,0.1\n"
+
+        def close(self) -> None:
+            pass
+
+    backup = main.backup_legacy_state
+
+    def failing_backup(path: Path) -> Path:
+        if failure == "backup":
+            raise OSError("backup failed")
+        return backup(path)
+
+    monkeypatch.setattr(main, "load_options_file", Mock(return_value=config))
+    monkeypatch.setattr(main, "configure_logging", Mock())
+    monkeypatch.setattr(main, "MqttPublisher", FakePublisher)
+    monkeypatch.setattr(main, "EsbnClient", FakeEsbnClient)
+    monkeypatch.setattr(main, "backup_legacy_state", failing_backup)
+    if first_failure is not None:
+        with pytest.raises((EsbnError, main.RuntimeStateError, MqttPublishError)):
+            main.run_once(tmp_path / "options.json", tmp_path)
+        assert published == []
+        if first_failure in ("download", "backup"):
+            assert state_path.read_text() == original
+            assert not backup_path.exists()
+        else:
+            assert json.loads(state_path.read_text())["hdf_timestamp_version"] == 2
+            assert backup_path.read_text() == original
+        failure = None
+
+    main.run_once(tmp_path / "options.json", tmp_path)
+    first_state = state_path.read_text()
+    main.run_once(tmp_path / "options.json", tmp_path)
+
+    assert state_path.read_text() == first_state
+    assert backup_path.read_text() == original
+    assert json.loads(first_state)["hdf_timestamp_version"] == 2
+    state_messages = [message.payload for message in published if message.topic.endswith("/state")]
+    assert len(state_messages) == 2
+    for payload in state_messages:
+        assert payload["import_total_kwh"] == 101.0
+        assert payload["export_total_kwh"] == 50.1
+        assert payload["import_cost_total"] == 25.5
+        assert payload["latest_esbn_interval_start"] == "2026-05-16T17:30:00+00:00"
+        assert payload["new_interval_values_processed"] == 0
 
 
 def test_run_once_warns_and_publishes_stuck_export_when_row_count_drops_without_new_latest(

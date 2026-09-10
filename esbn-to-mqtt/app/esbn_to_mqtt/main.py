@@ -22,7 +22,7 @@ from .mqtt import (
     build_discovery_messages,
     build_state_message,
 )
-from .state import AccumulatorState
+from .state import AccumulatorState, backup_legacy_state
 
 LOGGER = logging.getLogger(__name__)
 ERROR_RETRY_BACKOFF_SECONDS = 15 * 60
@@ -160,6 +160,14 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
     try:
         csv_content = client.download_30_min_kwh_hdf()
         readings = parse_hdf_csv(csv_content)
+        migration_backup: Path | None = None
+        try:
+            migrated = accumulator.migrate_hdf_timestamps()
+            if migrated is not accumulator:
+                migration_backup = backup_legacy_state(state_path)
+            accumulator = migrated
+        except (OSError, ValueError) as exc:
+            raise RuntimeStateError("cached accumulator state could not be migrated") from exc
         processed_before = accumulator.processed_intervals
         accumulator = accumulator.apply(readings)
         accumulator = accumulator.apply_tariff_costs(readings, config.tariff)
@@ -179,6 +187,10 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
             latest_interval_start=metrics.latest_esbn_interval_start,
         )
         accumulator.save(state_path)
+        if migration_backup is not None:
+            LOGGER.info(
+                "migrated cached HDF timestamps; original state saved to %s", migration_backup,
+            )
         metrics = replace(
             metrics,
             hdf_export_stuck=accumulator.hdf_export_stuck,
