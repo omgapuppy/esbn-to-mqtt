@@ -370,7 +370,7 @@ class EsbnClient:
 
         values: dict[str, str] = {}
         for name in ("state", "client_info", "code"):
-            tag = form.find(attrs={"name": name})
+            tag = form.find(None, attrs={"name": name})
             value = tag.get("value") if tag is not None else None
             if not isinstance(value, str) or not value:
                 raise EsbnAuthenticationError(f"ESBN confirmation form missing {name}")
