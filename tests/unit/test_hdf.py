@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from esbn_to_mqtt.hdf import HdfParseError, parse_hdf_csv
+from esbn_to_mqtt.state import AccumulatorState
 
 
 def test_parse_hdf_csv_reads_import_and_export_values() -> None:
@@ -130,3 +131,27 @@ def test_parse_hdf_csv_handles_the_missing_hour_on_the_spring_transition() -> No
         "2027-03-28T01:00:00+00:00",
         "2027-03-28T01:30:00+00:00",
     ]
+
+
+@pytest.mark.parametrize("ascending", [False, True])
+def test_autumn_fold_is_counted_independently_for_import_and_export(ascending: bool) -> None:
+    content = Path("tests/fixtures/esbn_autumn_channels_anonymized.csv").read_text()
+    if ascending:
+        header, *rows = content.splitlines()
+        content = "\n".join([header, *reversed(rows)]) + "\n"
+
+    readings = parse_hdf_csv(content)
+    state = AccumulatorState.empty().apply(readings)
+
+    assert len(readings) == 12
+    assert state.import_total_kwh == 21.0
+    assert state.export_total_kwh == 2.1
+    assert len(state.processed_interval_values) == 12
+    for hour_start, import_kwh in zip(
+        ["23:00", "23:30", "00:00", "00:30", "01:00", "01:30"], range(1, 7), strict=True,
+    ):
+        day = "24" if hour_start.startswith("23") else "25"
+        interval = f"2026-10-{day}T{hour_start}:00+00:00"
+        assert state.processed_interval_values[f"{interval}:import"] == import_kwh
+        assert state.processed_interval_values[f"{interval}:export"] == import_kwh / 10
+    assert state.apply(readings) == state

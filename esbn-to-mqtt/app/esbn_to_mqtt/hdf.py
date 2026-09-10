@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from zoneinfo import ZoneInfo
@@ -163,16 +164,19 @@ def parse_hdf_csv(content: str) -> list[MeterReading]:
 
         parsed.append((_parse_local_end_time(date_value), import_kwh, export_kwh, quality))
 
-    flags = _fold_flags([local_end for local_end, _, _, _ in parsed])
+    # Separate import/export rows repeat a label without repeating the interval.
+    # Count folds per channel; keep row identity so duplicates remain revisions.
+    readings: dict[tuple[int, datetime], MeterReading] = {}
+    for channel, column in (("import_kwh", 1), ("export_kwh", 2)):
+        channel_rows = [(index, row) for index, row in enumerate(parsed) if row[column] is not None]
+        flags = _fold_flags([row[0] for _, row in channel_rows])
+        for (index, parsed_row), fold in zip(channel_rows, flags, strict=True):
+            timestamp = _interval_start(parsed_row[0], fold)
+            key = (index, timestamp)
+            reading = readings.get(key, MeterReading(timestamp=timestamp, quality=parsed_row[3]))
+            readings[key] = (
+                replace(reading, import_kwh=parsed_row[1]) if channel == "import_kwh"
+                else replace(reading, export_kwh=parsed_row[2])
+            )
 
-    readings = [
-        MeterReading(
-            timestamp=_interval_start(local_end, fold),
-            import_kwh=import_kwh,
-            export_kwh=export_kwh,
-            quality=quality,
-        )
-        for (local_end, import_kwh, export_kwh, quality), fold in zip(parsed, flags, strict=True)
-    ]
-
-    return sorted(readings, key=lambda reading: reading.timestamp)
+    return sorted(readings.values(), key=lambda reading: reading.timestamp)
