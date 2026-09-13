@@ -68,6 +68,30 @@ The app calculates cost from each 30-minute import interval and stores processed
 
 ## Data Freshness
 
+### Upgrading to Irish-local HDF timestamps
+
+Existing installs migrate their cached interval and tariff keys automatically on the
+first successful HDF download. The app saves the original file as
+`state.json.before-local-time`, then atomically replaces `state.json` with the new
+format. A saved `hdf_timestamp_version` prevents repeat migrations on later polls
+or restarts. No manual reset of the accumulator is needed.
+
+Migration retains the accumulated totals and history outside the current HDF
+window. Replayed readings can correct tariff costs and recover autumn intervals
+that the old parser collapsed, where the export still includes both readings.
+The older keys-only state format has no saved values to reconcile, so its totals
+are retained and both autumn folds are marked processed. Missing historical
+readings cannot be reconstructed from those keys alone. Migration does not rewrite
+statistics already stored in Home Assistant.
+
+Unversioned state is treated as having the released parser's UTC-labelled wall
+times. If you already converted your state with a custom timezone patch, verify
+that conversion before upgrading and set `hdf_timestamp_version` to `2` while the
+app is stopped; such state must not be shifted again. To roll back to the old
+parser, stop the app and restore the matching pre-migration state backup as well.
+
+### Polling and freshness
+
 The app now fetches live ESBN data during each poll. Freshness depends on the source portal exposing updated readings and on the configured polling interval, so new consumption values can still lag behind the meter by a few hours.
 
 The app stores ESBN session cookies in its Home Assistant app data directory and reuses them on later polls. This avoids a full username/password login on every poll when ESBN keeps the session valid.

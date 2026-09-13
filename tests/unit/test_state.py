@@ -408,6 +408,7 @@ def test_save_creates_parent_directories_and_writes_pretty_sorted_json(tmp_path:
         '{\n'
         '  "export_total_kwh": 1.5,\n'
         '  "hdf_export_stuck_polls": 0,\n'
+        '  "hdf_timestamp_version": 2,\n'
         '  "import_cost_total": 3.33,\n'
         '  "import_total_kwh": 8.75,\n'
         '  "last_hdf_latest_interval_start": null,\n'

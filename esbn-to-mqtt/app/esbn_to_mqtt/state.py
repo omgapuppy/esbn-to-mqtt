@@ -1,17 +1,77 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from types import MappingProxyType
 from typing import Self
 
+from .hdf import LOCAL_TZ
 from .models import MeterReading, MeterTotals, TariffConfig
 from .tariff import classify_tariff, tariff_rate
 
 HDF_EXPORT_STUCK_WARNING_POLLS = 2
+HDF_TIMESTAMP_VERSION = 2
+
+
+def _migrate_timestamp(timestamp: datetime, *, fold: int = 0) -> datetime:
+    # Undo the old interval-end subtraction before interpreting the wall clock.
+    local_end = (timestamp + timedelta(minutes=30)).replace(tzinfo=LOCAL_TZ, fold=fold)
+    return local_end.astimezone(UTC) - timedelta(minutes=30)
+
+
+def _migrate_interval_keys(
+    processed: frozenset[str], values: Mapping[str, float],
+) -> tuple[frozenset[str], dict[str, float]]:
+    migrated: set[str] = set()
+    migrated_values: dict[str, float] = {}
+    for interval_id in processed | values.keys():
+        timestamp_text, channel = interval_id.rsplit(":", 1)
+        timestamp = datetime.fromisoformat(timestamp_text)
+        new_id = f"{_migrate_timestamp(timestamp).isoformat()}:{channel}"
+        if new_id in migrated:
+            raise ValueError("legacy interval keys collide after timezone migration")
+        migrated.add(new_id)
+        if interval_id in values:
+            # A collapsed autumn value is a baseline for the pair. Replaying both
+            # corrected readings replaces it with their sum via normal revisions.
+            migrated_values[new_id] = values[interval_id]
+        else:
+            # Keys-only states cannot tell us the old contribution. Prime both
+            # autumn folds without adding either again; preserve the saved total.
+            migrated.add(f"{_migrate_timestamp(timestamp, fold=1).isoformat()}:{channel}")
+    return frozenset(migrated), migrated_values
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as file:
+        temporary_path = Path(file.name)
+        try:
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        except BaseException:
+            temporary_path.unlink(missing_ok=True)
+            raise
+    try:
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def backup_legacy_state(path: Path) -> Path:
+    backup_path = path.with_name(f"{path.name}.before-local-time")
+    content = path.read_text(encoding="utf-8")
+    if backup_path.exists():
+        if backup_path.read_text(encoding="utf-8") != content:
+            raise ValueError("existing timezone migration backup differs from legacy state")
+    else:
+        _atomic_write(backup_path, content)
+    return backup_path
 
 
 @dataclass(frozen=True)
@@ -27,6 +87,7 @@ class AccumulatorState:
     last_hdf_row_count: int | None = None
     last_hdf_latest_interval_start: datetime | None = None
     hdf_export_stuck_polls: int = 0
+    hdf_timestamp_version: int = HDF_TIMESTAMP_VERSION
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "processed_intervals", frozenset(self.processed_intervals))
@@ -89,6 +150,11 @@ class AccumulatorState:
         last_hdf_row_count = data.get("last_hdf_row_count")
         last_hdf_latest_interval = data.get("last_hdf_latest_interval_start")
         hdf_export_stuck_polls = data.get("hdf_export_stuck_polls", 0)
+        hdf_timestamp_version = data.get("hdf_timestamp_version", 1)
+        if type(hdf_timestamp_version) is not int or hdf_timestamp_version not in (
+            1, HDF_TIMESTAMP_VERSION,
+        ):
+            raise ValueError("state hdf_timestamp_version is unsupported")
         if last_interval is not None and not isinstance(last_interval, str):
             raise ValueError("state last_interval_start must be a string or null")
         if last_hdf_latest_interval is not None and not isinstance(
@@ -137,6 +203,7 @@ class AccumulatorState:
                 ),
                 last_hdf_row_count=last_hdf_row_count,
                 hdf_export_stuck_polls=hdf_export_stuck_polls,
+                hdf_timestamp_version=hdf_timestamp_version,
                 processed_intervals=frozenset(processed_intervals),
                 processed_interval_values={
                     interval: float(value)
@@ -155,7 +222,37 @@ class AccumulatorState:
     def hdf_export_stuck(self) -> bool:
         return self.hdf_export_stuck_polls >= HDF_EXPORT_STUCK_WARNING_POLLS
 
+    def migrate_hdf_timestamps(self) -> Self:
+        if self.hdf_timestamp_version == HDF_TIMESTAMP_VERSION:
+            return self
+        if self.hdf_timestamp_version != 1:
+            raise ValueError("state hdf_timestamp_version is unsupported")
+        processed, values = _migrate_interval_keys(
+            self.processed_intervals, self.processed_interval_values,
+        )
+        cost_processed, cost_values = _migrate_interval_keys(
+            self.processed_cost_intervals, self.processed_cost_interval_values,
+        )
+        return replace(
+            self,
+            processed_intervals=processed,
+            processed_interval_values=values,
+            processed_cost_intervals=cost_processed,
+            processed_cost_interval_values=cost_values,
+            last_interval_start=(
+                None if self.last_interval_start is None
+                else _migrate_timestamp(self.last_interval_start)
+            ),
+            last_hdf_latest_interval_start=(
+                None if self.last_hdf_latest_interval_start is None
+                else _migrate_timestamp(self.last_hdf_latest_interval_start)
+            ),
+            hdf_timestamp_version=HDF_TIMESTAMP_VERSION,
+        )
+
     def apply(self, readings: list[MeterReading]) -> Self:
+        if self.hdf_timestamp_version != HDF_TIMESTAMP_VERSION:
+            raise ValueError("legacy HDF timestamps must be migrated before applying readings")
         import_total = self.import_total_kwh
         export_total = self.export_total_kwh
         processed = set(self.processed_intervals)
@@ -210,6 +307,8 @@ class AccumulatorState:
         )
 
     def apply_tariff_costs(self, readings: list[MeterReading], tariff: TariffConfig) -> Self:
+        if self.hdf_timestamp_version != HDF_TIMESTAMP_VERSION:
+            raise ValueError("legacy HDF timestamps must be migrated before applying costs")
         if not tariff.enabled:
             return self
 
@@ -274,6 +373,7 @@ class AccumulatorState:
             last_hdf_row_count=row_count,
             last_hdf_latest_interval_start=latest_interval_start,
             hdf_export_stuck_polls=stuck_polls,
+            hdf_timestamp_version=self.hdf_timestamp_version,
         )
 
     def to_totals(self) -> MeterTotals:
@@ -288,7 +388,8 @@ class AccumulatorState:
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        _atomic_write(
+            path,
             json.dumps(
                 {
                     "import_total_kwh": self.import_total_kwh,
@@ -306,6 +407,7 @@ class AccumulatorState:
                     ),
                     "last_hdf_row_count": self.last_hdf_row_count,
                     "hdf_export_stuck_polls": self.hdf_export_stuck_polls,
+                    "hdf_timestamp_version": self.hdf_timestamp_version,
                     "processed_cost_interval_values": dict(
                         self.processed_cost_interval_values
                     ),
@@ -317,5 +419,4 @@ class AccumulatorState:
                 sort_keys=True,
             )
             + "\n",
-            encoding="utf-8",
         )
