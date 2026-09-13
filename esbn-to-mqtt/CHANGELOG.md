@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4
+
+- Interpret ESBN HDF timestamps in Irish local time so readings align correctly during IST.
+- Preserve both repeated intervals during the autumn clock change and handle the spring transition.
+- Migrate existing cached interval and tariff state automatically, retaining accumulated totals.
+
 ## 0.4.3
 
 - Fix Home Assistant discovery metadata for monetary cost totals and latest interval kWh sensors.
