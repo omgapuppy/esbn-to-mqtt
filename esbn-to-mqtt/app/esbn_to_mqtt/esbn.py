@@ -417,7 +417,10 @@ class EsbnClient:
                 "mprn": self._credentials.mprn,
                 "searchType": "intervalkwh",
             },
-            headers={"X-Xsrf-Token": token},
+            headers={
+                "X-Xsrf-Token": token,
+                "x-ReturnUrl": f"{BASE_URL}/Api/HistoricConsumption",
+            },
         )
 
     def _validate_csv(self, response: httpx.Response) -> str:
