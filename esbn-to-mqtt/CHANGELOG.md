@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5
+
+- Restore HDF downloads after ESB Networks began requiring the `x-ReturnUrl` request header.
+
 ## 0.4.4
 
 - Interpret ESBN HDF timestamps in Irish local time so readings align correctly during IST.
