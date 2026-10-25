@@ -11,7 +11,9 @@ permissions:
 
 jobs:
   publish:
+    # Release only from GitHub; forge mirrors run CI but must not publish.
     if: >-
+      github.server_url == 'https://github.com' &&
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'release')
     runs-on: ubuntu-latest
