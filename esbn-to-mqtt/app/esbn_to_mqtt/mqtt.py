@@ -158,6 +158,7 @@ def _last_update_discovery_payload(config: MqttConfig, mprn: str) -> dict[str, A
         "state_topic": state_topic(config, mprn),
         "unique_id": f"{APP_NAME}_{meter_id}_last_update",
         "value_template": "{{ value_json.last_successful_fetch }}",
+        "device_class": "timestamp",
     }
 
 
@@ -225,6 +226,7 @@ def build_discovery_messages(
                 "latest_interval_start",
                 "ESBN Latest Interval Start",
                 "latest_esbn_interval_start",
+                device_class="timestamp",
                 entity_category="diagnostic",
             ),
         ),

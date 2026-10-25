@@ -1,7 +1,9 @@
 import struct
+import tomllib
 from pathlib import Path
 
 import yaml
+from esbn_to_mqtt import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,7 +40,7 @@ def test_app_metadata() -> None:
     config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
 
     assert config["name"] == "esbn-to-mqtt"
-    assert config["version"] == "0.4.5"
+    assert config["version"] == "0.4.6"
     assert config["slug"] == "esbn_to_mqtt"
     assert config["stage"] == "stable"
     assert config["options"]["mqtt_host"] == "core-mosquitto"
@@ -60,8 +62,21 @@ def test_app_metadata() -> None:
     assert config["schema"]["mqtt_host"] == "str"
     assert config["schema"]["mqtt_port"] == "port"
     assert "mqtt:need" in config["services"]
+    assert config["image"] == "ghcr.io/omgapuppy/esbn-to-mqtt"
     assert config["options"]["log_level"] == "info"
     assert config["schema"]["log_level"] == "list(trace|debug|info|notice|warning|error|fatal)"
+
+
+def test_release_version_metadata_stays_in_sync() -> None:
+    config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
+    with (ROOT / "pyproject.toml").open("rb") as handle:
+        project = tomllib.load(handle)["project"]
+    dockerfile = (ROOT / "esbn-to-mqtt" / "Dockerfile").read_text(encoding="utf-8")
+
+    assert config["version"] == "0.4.6"
+    assert project["version"] == config["version"]
+    assert __version__ == config["version"]
+    assert f"ARG BUILD_VERSION={config['version']}" in dockerfile
 
 
 def test_app_presentation_assets() -> None:
@@ -73,17 +88,19 @@ def test_app_build_metadata() -> None:
     build = load_yaml(ROOT / "esbn-to-mqtt" / "build.yaml")
 
     assert build["build_from"] == {
-        "aarch64": "ghcr.io/home-assistant/aarch64-base:3.22",
-        "amd64": "ghcr.io/home-assistant/amd64-base:3.22",
+        "aarch64": "ghcr.io/home-assistant/base:3.24",
+        "amd64": "ghcr.io/home-assistant/base:3.24",
     }
 
 
 def test_ci_workflow_metadata() -> None:
     workflow = load_yaml_as_strings(ROOT / ".github" / "workflows" / "ci.yml")
+    test_job = workflow["jobs"]["test"]
 
     assert workflow["name"] == "CI"
     assert "pull_request" in workflow["on"]
     assert workflow["on"]["push"]["branches"] == ["codex/**", "feature/**", "fix/**"]
+    assert test_job["strategy"]["matrix"]["python-version"] == ["3.12", "3.14"]
 
 
 def test_release_workflow_metadata() -> None:
@@ -101,5 +118,7 @@ def test_release_workflow_metadata() -> None:
     assert "version:" in workflow_text
     assert "amd64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" in workflow_text
     assert "aarch64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" in workflow_text
+    assert "${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" in workflow_text
+    assert "docker buildx imagetools create" in workflow_text
     assert "gh release create" in workflow_text
     assert "--generate-notes" in workflow_text

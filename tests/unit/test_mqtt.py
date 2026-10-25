@@ -68,6 +68,9 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     latest_import_message = next(
         message for message in messages if "latest_import_interval" in message.topic
     )
+    latest_interval_start_message = next(
+        message for message in messages if "latest_interval_start" in message.topic
+    )
     data_lag_message = next(message for message in messages if "data_lag" in message.topic)
     auth_path_message = next(message for message in messages if "auth_path" in message.topic)
     export_stuck_message = next(
@@ -105,7 +108,7 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     assert last_update_message.payload["object_id"] == f"esbn_to_mqtt_{meter_id}_last_update"
     assert last_update_message.payload["unique_id"] == f"esbn_to_mqtt_{meter_id}_last_update"
     assert last_update_message.payload["value_template"] == "{{ value_json.last_successful_fetch }}"
-    assert "device_class" not in last_update_message.payload
+    assert last_update_message.payload["device_class"] == "timestamp"
     assert "state_class" not in last_update_message.payload
     assert "unit_of_measurement" not in last_update_message.payload
     assert "10000000000" not in str(last_update_message.payload)
@@ -115,6 +118,8 @@ def test_build_discovery_messages_use_energy_dashboard_metadata() -> None:
     assert latest_import_message.payload["value_template"] == (
         "{{ value_json.latest_import_interval_kwh }}"
     )
+    assert latest_interval_start_message.payload["device_class"] == "timestamp"
+    assert "state_class" not in latest_interval_start_message.payload
     assert data_lag_message.payload["device_class"] == "duration"
     assert data_lag_message.payload["unit_of_measurement"] == "h"
     assert data_lag_message.payload["entity_category"] == "diagnostic"

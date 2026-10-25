@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.6
+
+- Publish a preferred generic multi-architecture image for current Home Assistant releases.
+- Update the Home Assistant base image to Alpine 3.24 and test Python 3.12 and 3.14.
+- Mark update timestamps as timestamp sensors and keep release version metadata synchronized.
+- Add regression coverage for the ESBN HDF download return header.
+
 ## 0.4.5
 
 - Restore HDF downloads after ESB Networks began requiring the `x-ReturnUrl` request header.

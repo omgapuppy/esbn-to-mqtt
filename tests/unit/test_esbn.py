@@ -163,6 +163,9 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
         if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
             assert request.method == "POST"
             assert request.headers["x-xsrf-token"] == "xsrf-token"
+            assert request.headers["x-returnurl"] == (
+                "https://myaccount.esbnetworks.ie/Api/HistoricConsumption"
+            )
             assert json.loads(request.content) == {
                 "mprn": "12345678901",
                 "searchType": "intervalkwh",
