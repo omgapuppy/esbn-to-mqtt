@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Check out merged commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
@@ -89,7 +89,7 @@ jobs:
           platforms: linux/amd64
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/amd64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           build-args: |
-            BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.22
+            BUILD_FROM=ghcr.io/home-assistant/base:3.24
             BUILD_ARCH=amd64
             BUILD_VERSION=${{ steps.version.outputs.version }}
 
@@ -101,9 +101,16 @@ jobs:
           platforms: linux/arm64
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/aarch64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           build-args: |
-            BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.22
+            BUILD_FROM=ghcr.io/home-assistant/base:3.24
             BUILD_ARCH=aarch64
             BUILD_VERSION=${{ steps.version.outputs.version }}
+
+      - name: Publish multi-architecture image
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/amd64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/aarch64-${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}"
 
       - name: Create git tag
         run: |
