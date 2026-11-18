@@ -48,7 +48,7 @@ This is not a HACS integration and is not affiliated with, endorsed by, or conne
 
 1. In Home Assistant, go to **Settings > Apps**.
 2. Open app repositories.
-3. Add `https://github.com/omgapuppy/esbn-to-mqtt`.
+3. Add `https://github.com/seanbrogan0/esbn-to-mqtt`.
 4. Install `esbn-to-mqtt`.
 5. Configure ESBN credentials, MPRN, and MQTT credentials in the app settings.
 6. Start the app.

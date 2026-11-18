@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.7
+
+- Fork build: use the new ESB Networks HDF download endpoint, `/energymanagement/api/consumption/DownloadHdfPeriodic`, after the old `/DataHub/DownloadHdfPeriodic` started returning 405.
+- Fork build: removed the prebuilt `image` reference so Home Assistant builds this fork's source locally.
+
 ## 0.4.6
 
 - Publish a preferred generic multi-architecture image for current Home Assistant releases.
