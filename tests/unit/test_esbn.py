@@ -160,7 +160,7 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
             assert request.method == "GET"
             return httpx.Response(200, json={"token": "xsrf-token"})
 
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == "https://myaccount.esbnetworks.ie/energymanagement/api/consumption/DownloadHdfPeriodic":
             assert request.method == "POST"
             assert request.headers["x-xsrf-token"] == "xsrf-token"
             assert request.headers["x-returnurl"] == (
@@ -201,7 +201,7 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
         "https://myaccount.esbnetworks.ie/af/t",
-        "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic",
+        "https://myaccount.esbnetworks.ie/energymanagement/api/consumption/DownloadHdfPeriodic",
     ]
 
 
@@ -224,7 +224,7 @@ def test_download_30_min_kwh_hdf_uses_persisted_session_cookie(
             return _html_response("<html><body>historic</body></html>")
         if url == "https://myaccount.esbnetworks.ie/af/t":
             return httpx.Response(200, json={"token": "xsrf-token"})
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == "https://myaccount.esbnetworks.ie/energymanagement/api/consumption/DownloadHdfPeriodic":
             return _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n")
         raise AssertionError(f"unexpected request: {request.method} {url}")
 
@@ -245,7 +245,7 @@ def test_download_30_min_kwh_hdf_uses_persisted_session_cookie(
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
         "https://myaccount.esbnetworks.ie/af/t",
-        "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic",
+        "https://myaccount.esbnetworks.ie/energymanagement/api/consumption/DownloadHdfPeriodic",
     ]
 
 
@@ -366,7 +366,7 @@ def test_download_30_min_kwh_hdf_solves_recaptcha_challenge_before_confirming_si
             return _html_response("<html><body>historic</body></html>")
         if url == "https://myaccount.esbnetworks.ie/af/t":
             return httpx.Response(200, json={"token": "xsrf-token"})
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == "https://myaccount.esbnetworks.ie/energymanagement/api/consumption/DownloadHdfPeriodic":
             return _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n")
         raise AssertionError(f"unexpected request: {request.method} {url}")
 
@@ -450,7 +450,7 @@ def test_download_30_min_kwh_hdf_rejects_non_csv_download() -> None:
             return _html_response("<html><body>historic</body></html>")
         if url == "https://myaccount.esbnetworks.ie/af/t":
             return httpx.Response(200, json={"token": "xsrf-token"})
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == "https://myaccount.esbnetworks.ie/energymanagement/api/consumption/DownloadHdfPeriodic":
             return _html_response("<html><body>export unavailable</body></html>")
         raise AssertionError(f"unexpected request: {request.method} {url}")
 
@@ -486,3 +486,124 @@ def test_download_30_min_kwh_hdf_rejects_non_redirect_confirm_post() -> None:
     with pytest.raises(EsbnAuthenticationError, match="confirmation form post failed"):
         client.download_30_min_kwh_hdf()
     client.close()
+
+
+# Download endpoint coverage for the moved ESBN HDF export (upstream issue #30)
+NEW_HDF_URL = "https://myaccount.esbnetworks.ie/energymanagement/api/consumption/DownloadHdfPeriodic"
+LEGACY_HDF_URL = "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic"
+
+
+def _cookie_session_handler(
+    requests: list[httpx.Request],
+    download_response: httpx.Response,
+):
+    """Mock a persisted-cookie session that reaches the download step with no login."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        url = str(request.url)
+        if request.url.host == "login.esbnetworks.ie":
+            raise AssertionError("persisted session should avoid login")
+        if url == "https://myaccount.esbnetworks.ie/":
+            return _html_response("<html><body>portal</body></html>")
+        if url == "https://myaccount.esbnetworks.ie/Api/HistoricConsumption":
+            # ESBN now returns 404 here; the client must treat it as non-fatal
+            return _html_response("<html><body>not found</body></html>", status_code=404)
+        if url == "https://myaccount.esbnetworks.ie/af/t":
+            return httpx.Response(200, json={"token": "xsrf-token"})
+        if url == NEW_HDF_URL:
+            return download_response
+        raise AssertionError(f"unexpected request: {request.method} {url}")
+
+    return handler
+
+
+def test_download_uses_new_endpoint_and_never_calls_legacy_url(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+    cookie_path = tmp_path / "esbn-cookies.txt"
+    _write_session_cookie(cookie_path)
+    handler = _cookie_session_handler(
+        requests,
+        _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n"),
+    )
+
+    client = EsbnClient(
+        _credentials(), transport=httpx.MockTransport(handler), cookie_jar_path=cookie_path
+    )
+    try:
+        csv_content = client.download_30_min_kwh_hdf()
+    finally:
+        client.close()
+
+    urls = [str(request.url) for request in requests]
+    assert csv_content.startswith("Read Date and End Time")
+    assert urls[-1] == NEW_HDF_URL
+    assert LEGACY_HDF_URL not in urls
+    assert requests[-1].method == "POST"
+
+
+def test_download_sends_unchanged_body_and_headers_to_new_endpoint(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+    cookie_path = tmp_path / "esbn-cookies.txt"
+    _write_session_cookie(cookie_path)
+    handler = _cookie_session_handler(
+        requests,
+        _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n"),
+    )
+
+    client = EsbnClient(
+        _credentials(), transport=httpx.MockTransport(handler), cookie_jar_path=cookie_path
+    )
+    try:
+        client.download_30_min_kwh_hdf()
+    finally:
+        client.close()
+
+    download = requests[-1]
+    assert download.headers["x-xsrf-token"] == "xsrf-token"
+    assert download.headers["x-returnurl"] == (
+        "https://myaccount.esbnetworks.ie/Api/HistoricConsumption"
+    )
+    assert json.loads(download.content) == {"mprn": "12345678901", "searchType": "intervalkwh"}
+
+
+def test_download_tolerates_404_on_historic_consumption_page(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+    cookie_path = tmp_path / "esbn-cookies.txt"
+    _write_session_cookie(cookie_path)
+    handler = _cookie_session_handler(
+        requests,
+        _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n"),
+    )
+
+    client = EsbnClient(
+        _credentials(), transport=httpx.MockTransport(handler), cookie_jar_path=cookie_path
+    )
+    try:
+        csv_content = client.download_30_min_kwh_hdf()
+    finally:
+        client.close()
+
+    assert csv_content.startswith("Read Date and End Time")
+
+
+@pytest.mark.parametrize("status_code", [404, 405])
+def test_download_reports_status_when_endpoint_moves_again(
+    tmp_path: Path, status_code: int
+) -> None:
+    requests: list[httpx.Request] = []
+    cookie_path = tmp_path / "esbn-cookies.txt"
+    _write_session_cookie(cookie_path)
+    handler = _cookie_session_handler(
+        requests,
+        httpx.Response(status_code, text="", headers={"allow": "GET"}),
+    )
+
+    client = EsbnClient(
+        _credentials(), transport=httpx.MockTransport(handler), cookie_jar_path=cookie_path
+    )
+    try:
+        with pytest.raises(EsbnError, match=str(status_code)):
+            client.download_30_min_kwh_hdf()
+    finally:
+        client.close()
