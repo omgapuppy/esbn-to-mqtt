@@ -7,9 +7,17 @@ from pathlib import Path
 from typing import Any
 
 from .logging import LOG_LEVELS
-from .models import AppConfig, CaptchaConfig, EsbnCredentials, MqttConfig, TariffConfig
+from .models import (
+    AppConfig,
+    CaptchaConfig,
+    EsbnCredentials,
+    MqttConfig,
+    StatisticsConfig,
+    TariffConfig,
+)
 
 MPRN_PATTERN = re.compile(r"^\d{11}$")
+STATISTIC_ID_PATTERN = re.compile(r"^[a-z0-9_]+:[a-z0-9_]+$")
 
 
 class ConfigError(ValueError):
@@ -137,6 +145,16 @@ def _tariff_config(options: dict[str, Any]) -> TariffConfig:
     )
 
 
+def _statistics_config(options: dict[str, Any]) -> StatisticsConfig:
+    statistic_id = _optional_str(options, "statistics_id") or "esbn:grid_import"
+    if not STATISTIC_ID_PATTERN.match(statistic_id):
+        raise ConfigError("statistics_id must look like source:name, e.g. esbn:grid_import")
+    return StatisticsConfig(
+        enabled=_optional_bool(options, "statistics_enabled", True),
+        statistic_id=statistic_id,
+    )
+
+
 def load_config_dict(options: dict[str, Any]) -> AppConfig:
     try:
         mprn = _required_str(options, "mprn")
@@ -169,6 +187,7 @@ def load_config_dict(options: dict[str, Any]) -> AppConfig:
         ),
         captcha=_captcha_config(options),
         tariff=_tariff_config(options),
+        statistics=_statistics_config(options),
         poll_interval_hours=poll_interval_hours,
         log_level=_log_level(options),
     )
@@ -203,6 +222,8 @@ def load_env_config() -> AppConfig:
             "tariff_night_rate_eur_per_kwh": _env_float("TARIFF_NIGHT_RATE_EUR_PER_KWH", "0"),
             "tariff_peak_rate_eur_per_kwh": _env_float("TARIFF_PEAK_RATE_EUR_PER_KWH", "0"),
             "tariff_currency": os.environ.get("TARIFF_CURRENCY", "EUR"),
+            "statistics_enabled": _env_bool("STATISTICS_ENABLED", "true"),
+            "statistics_id": os.environ.get("STATISTICS_ID", "esbn:grid_import"),
             "log_level": os.environ.get("LOG_LEVEL", "info"),
         }
     )

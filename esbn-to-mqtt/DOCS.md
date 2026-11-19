@@ -22,6 +22,8 @@ Configure these settings in the app:
 - `tariff_night_rate_eur_per_kwh` - VAT-inclusive night unit rate in currency/kWh
 - `tariff_peak_rate_eur_per_kwh` - VAT-inclusive peak unit rate in currency/kWh
 - `tariff_currency` - default `EUR`
+- `statistics_enabled` - default `true`; writes hourly history into Home Assistant long-term statistics
+- `statistics_id` - default `esbn:grid_import`; the external statistic to write
 - `log_level` - default `info`; accepted values `trace`, `debug`, `info`, `notice`, `warning`, `error`, `fatal`
 
 ## Energy Dashboard Setup
@@ -53,6 +55,16 @@ If tariff costing is enabled, the app also publishes:
 - `ESBN Current Month Import Cost`
 - `ESBN Current Tariff`
 - `ESBN Current Tariff Rate`
+
+## Hourly Statistics
+
+After each poll the app writes ESBN usage into Home Assistant long-term statistics as hourly values, under the external statistic `esbn:grid_import` by default. Use that statistic as grid consumption in the Energy dashboard instead of `ESBN Import Total`, so each day's usage lands in its real hours rather than in the hour the poll ran.
+
+- An hour is only written once both of its half-hours are known.
+- Re-sending an hour replaces it, so repeated polls and ESBN revisions never create duplicates.
+- Running totals are built from every interval the app has stored, so they stay stable when ESBN's download window moves.
+- Needs Home Assistant API access (`homeassistant_api`). If the import fails, the error is logged and the MQTT sensors still update.
+- Do not also list `ESBN Import Total` as a grid source in the Energy dashboard, or usage is counted twice.
 
 ## Tariff Costing
 

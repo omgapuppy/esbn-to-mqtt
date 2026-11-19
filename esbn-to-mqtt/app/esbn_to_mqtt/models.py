@@ -38,6 +38,16 @@ class TariffConfig:
 
 
 @dataclass(frozen=True)
+class StatisticsConfig:
+    enabled: bool = True
+    statistic_id: str = "esbn:grid_import"
+
+    @property
+    def source(self) -> str:
+        return self.statistic_id.split(":", 1)[0]
+
+
+@dataclass(frozen=True)
 class MeterReading:
     timestamp: datetime
     import_kwh: float | None = None
@@ -57,6 +67,7 @@ class AppConfig:
     log_level: str
     captcha: CaptchaConfig = CaptchaConfig()
     tariff: TariffConfig = TariffConfig()
+    statistics: StatisticsConfig = StatisticsConfig()
 
     @property
     def mprn(self) -> str:

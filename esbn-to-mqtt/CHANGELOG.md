@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.8
+
+- Fork build: write ESBN half-hours into Home Assistant long-term statistics as hourly values (default statistic `esbn:grid_import`), so each day's usage lands in its real hours instead of one block when the poll runs.
+- Requires `homeassistant_api` access; new options `statistics_enabled` and `statistics_id`.
+- Re-sending an hour replaces it, so repeated polls and ESBN revisions never duplicate data.
+
 ## 0.4.7
 
 - Fork build: use the new ESB Networks HDF download endpoint, `/energymanagement/api/consumption/DownloadHdfPeriodic`, after the old `/DataHub/DownloadHdfPeriodic` started returning 405.

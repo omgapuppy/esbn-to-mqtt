@@ -23,6 +23,11 @@ from .mqtt import (
     build_state_message,
 )
 from .state import AccumulatorState, backup_legacy_state
+from .statistics import (
+    StatisticsError,
+    build_hourly_import_statistics,
+    import_hourly_statistics,
+)
 
 LOGGER = logging.getLogger(__name__)
 ERROR_RETRY_BACKOFF_SECONDS = 15 * 60
@@ -120,6 +125,23 @@ def _raise_if_challenge_cooldown_active(config: AppConfig, data_dir: Path) -> No
         "ESBN requested browser verification; automated login paused until next poll",
         retry_after_seconds=retry_after_seconds,
     )
+
+
+# Write the hourly history into Home Assistant's long-term statistics. A failure here is
+# logged but never stops the MQTT sensors or the cached state from updating.
+def _publish_hourly_statistics(config: AppConfig, accumulator: AccumulatorState) -> None:
+    if not config.statistics.enabled:
+        return
+    try:
+        import_hourly_statistics(
+            build_hourly_import_statistics(accumulator.processed_interval_values),
+            config.statistics,
+        )
+    except StatisticsError as exc:
+        LOGGER.error(
+            "hourly statistics import failed: %s",
+            redact(str(exc), _redaction_secrets(config)),
+        )
 
 
 def run_once(options_path: Path, data_dir: Path) -> AppConfig:
@@ -235,6 +257,7 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
         messages.append(build_state_message(config.mqtt, config.mprn, totals, metrics))
         messages.append(build_availability_message(config.mqtt, config.mprn, online=True))
         publisher.publish_messages(messages)
+        _publish_hourly_statistics(config, accumulator)
         _clear_challenge_cooldown(data_dir)
     finally:
         client.close()
