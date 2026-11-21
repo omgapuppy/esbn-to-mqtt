@@ -16,6 +16,11 @@ from esbn_to_mqtt.esbn import (
 )
 from esbn_to_mqtt.models import EsbnCredentials
 
+HDF_DOWNLOAD_URL = (
+    "https://myaccount.esbnetworks.ie"
+    "/energymanagement/api/consumption/DownloadHdfPeriodic"
+)
+
 
 def _credentials() -> EsbnCredentials:
     return EsbnCredentials(
@@ -160,7 +165,7 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
             assert request.method == "GET"
             return httpx.Response(200, json={"token": "xsrf-token"})
 
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == HDF_DOWNLOAD_URL:
             assert request.method == "POST"
             assert request.headers["x-xsrf-token"] == "xsrf-token"
             assert request.headers["x-returnurl"] == (
@@ -201,12 +206,13 @@ def test_download_30_min_kwh_hdf_performs_live_login_and_download_flow(
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
         "https://myaccount.esbnetworks.ie/af/t",
-        "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic",
+        HDF_DOWNLOAD_URL,
     ]
 
 
+@pytest.mark.parametrize("historic_page_status", [200, 404])
 def test_download_30_min_kwh_hdf_uses_persisted_session_cookie(
-    tmp_path: Path,
+    tmp_path: Path, historic_page_status: int,
 ) -> None:
     requests: list[httpx.Request] = []
     cookie_path = tmp_path / "esbn-cookies.txt"
@@ -221,10 +227,10 @@ def test_download_30_min_kwh_hdf_uses_persisted_session_cookie(
             assert "session=abc" in request.headers.get("cookie", "")
             return _html_response("<html><body>portal</body></html>")
         if url == "https://myaccount.esbnetworks.ie/Api/HistoricConsumption":
-            return _html_response("<html><body>historic</body></html>")
+            return _html_response("<html><body>historic</body></html>", historic_page_status)
         if url == "https://myaccount.esbnetworks.ie/af/t":
             return httpx.Response(200, json={"token": "xsrf-token"})
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == HDF_DOWNLOAD_URL:
             return _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n")
         raise AssertionError(f"unexpected request: {request.method} {url}")
 
@@ -245,7 +251,7 @@ def test_download_30_min_kwh_hdf_uses_persisted_session_cookie(
         "https://myaccount.esbnetworks.ie/",
         "https://myaccount.esbnetworks.ie/Api/HistoricConsumption",
         "https://myaccount.esbnetworks.ie/af/t",
-        "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic",
+        HDF_DOWNLOAD_URL,
     ]
 
 
@@ -366,7 +372,7 @@ def test_download_30_min_kwh_hdf_solves_recaptcha_challenge_before_confirming_si
             return _html_response("<html><body>historic</body></html>")
         if url == "https://myaccount.esbnetworks.ie/af/t":
             return httpx.Response(200, json={"token": "xsrf-token"})
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == HDF_DOWNLOAD_URL:
             return _csv_response("Read Date and End Time,Import kWh\n2026-05-12 00:30,0.123\n")
         raise AssertionError(f"unexpected request: {request.method} {url}")
 
@@ -450,7 +456,7 @@ def test_download_30_min_kwh_hdf_rejects_non_csv_download() -> None:
             return _html_response("<html><body>historic</body></html>")
         if url == "https://myaccount.esbnetworks.ie/af/t":
             return httpx.Response(200, json={"token": "xsrf-token"})
-        if url == "https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic":
+        if url == HDF_DOWNLOAD_URL:
             return _html_response("<html><body>export unavailable</body></html>")
         raise AssertionError(f"unexpected request: {request.method} {url}")
 
