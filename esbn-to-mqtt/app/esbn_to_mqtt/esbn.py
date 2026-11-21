@@ -411,7 +411,7 @@ class EsbnClient:
     def _download_csv(self, token: str) -> httpx.Response:
         LOGGER.info("Downloading ESBN HDF export")
         return self._post(
-            f"{BASE_URL}/DataHub/DownloadHdfPeriodic",
+            f"{BASE_URL}/energymanagement/api/consumption/DownloadHdfPeriodic",
             step="HDF export download",
             json={
                 "mprn": self._credentials.mprn,

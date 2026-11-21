@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.7
+
+- Restore HDF downloads by using the new ESB Networks consumption endpoint after the previous endpoint began returning HTTP 405.
+
 ## 0.4.6
 
 - Publish a preferred generic multi-architecture image for current Home Assistant releases.
