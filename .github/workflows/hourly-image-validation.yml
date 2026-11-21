@@ -1,0 +1,30 @@
+name: Hourly app image validation
+on:
+  push:
+    branches: [feature/hourly-image-validation]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: esbn-to-mqtt
+          platforms: ${{ matrix.platform }}
+          push: false
+          outputs: type=cacheonly
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/base:3.24
+            BUILD_ARCH=${{ matrix.arch }}
+            BUILD_VERSION=0.5.0
