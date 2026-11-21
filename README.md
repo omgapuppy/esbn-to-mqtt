@@ -15,6 +15,7 @@ This is not a HACS integration and is not affiliated with, endorsed by, or conne
 ## What It Publishes
 
 - Energy dashboard totals: `ESBN Import Total`, plus `ESBN Export Total` when export data exists.
+- [Opt-in hourly grid import history](esbn-to-mqtt/DOCS.md#opt-in-hourly-grid-import) shows ESBN usage in the hours it occurred.
 - Recent usage: `ESBN Latest Interval Import` and `ESBN Latest Interval Export`.
 - Period usage: `ESBN Today Import`, `ESBN Today Export`, `ESBN Current Month Import`, and `ESBN Current Month Export`.
 - Optional smart-tariff cost: `ESBN Import Cost Total`, `ESBN Today Import Cost`, and `ESBN Current Month Import Cost`.

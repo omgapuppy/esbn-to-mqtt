@@ -17,6 +17,7 @@ Configure these settings in the app:
 - `captcha_solver` - default `disabled`; set to `2captcha` to solve ESBN reCAPTCHA challenges
 - `two_captcha_api_key` - required only when `captcha_solver` is `2captcha`
 - `two_captcha_timeout_seconds` - default `120`
+- `hourly_statistics_enabled` — default `false`. Import hourly grid usage into Home Assistant Recorder.
 - `tariff_enabled` - default `false`; enables import cost sensors
 - `tariff_day_rate_eur_per_kwh` - VAT-inclusive day unit rate in currency/kWh
 - `tariff_night_rate_eur_per_kwh` - VAT-inclusive night unit rate in currency/kWh
@@ -53,6 +54,34 @@ If tariff costing is enabled, the app also publishes:
 - `ESBN Current Month Import Cost`
 - `ESBN Current Tariff`
 - `ESBN Current Tariff Rate`
+
+## Opt-in hourly grid import
+
+Use this on Home Assistant OS with Recorder and Home Assistant Core 2026.11 or newer. The app
+uses its Supervisor API access to write long-term statistics. Your current MQTT setup still
+provides the live sensors and diagnostics.
+
+1. Set `hourly_statistics_enabled` to `true` in the app's Configuration tab, save, and restart the app.
+2. After a successful poll, open **Developer tools > Statistics**. Find **ESBN Hourly Grid Import**
+   with the meter-specific suffix shown in the app log. The ID starts with `esbn:grid_import_`.
+3. In the Energy dashboard configuration, replace **ESBN Import Total** as the grid consumption
+   source with **ESBN Hourly Grid Import**. Selecting both counts the same consumption twice.
+   Keep **ESBN Export Total** for grid return if you use it. The hourly source covers grid import.
+   Export and tariff-cost sensors still update on the existing MQTT schedule. For hourly
+   grid import, leave automatic price calculation off. Home Assistant cannot calculate a
+   cost from a fixed price or price entity for an external statistic.
+
+The app combines two 30-minute import readings into each complete hour. The first import
+backfills the hours in the current ESBN download. Later polls write new hours and any rows whose
+cumulative sums changed after a correction. Older Recorder history stays available when the
+ESBN download window moves or the app is reinstalled. Run one writer per meter on each Home
+Assistant instance.
+
+If a correction would affect a previously imported hour missing from the current download,
+the app skips the Recorder update, logs the reason, and retries at the next poll. MQTT publishing
+continues. To switch back, disable the option and restore **ESBN Import Total** as the grid
+consumption source. Disabling the option leaves the imported history in Recorder. Switching
+sources changes which history the Energy dashboard displays.
 
 ## Tariff Costing
 

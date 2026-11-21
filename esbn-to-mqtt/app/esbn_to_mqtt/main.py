@@ -23,6 +23,7 @@ from .mqtt import (
     build_state_message,
 )
 from .state import AccumulatorState, backup_legacy_state
+from .statistics import StatisticsError, sync_hourly_import
 
 LOGGER = logging.getLogger(__name__)
 ERROR_RETRY_BACKOFF_SECONDS = 15 * 60
@@ -236,6 +237,11 @@ def run_once(options_path: Path, data_dir: Path) -> AppConfig:
         messages.append(build_availability_message(config.mqtt, config.mprn, online=True))
         publisher.publish_messages(messages)
         _clear_challenge_cooldown(data_dir)
+        if config.hourly_statistics_enabled:
+            try:
+                sync_hourly_import(readings, config.mprn)
+            except StatisticsError as exc:
+                LOGGER.warning("Hourly statistics import skipped: %s", exc)
     finally:
         client.close()
 
