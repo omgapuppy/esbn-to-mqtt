@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Fix hourly grid import on Home Assistant OS by loading the Supervisor-provided token when the app starts. No token needs to be configured manually.
+
 ## 0.5.0
 
 - Add opt-in hourly grid import history in Home Assistant Recorder. Set
