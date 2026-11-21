@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Add opt-in hourly grid import history in Home Assistant Recorder. Set
+  `hourly_statistics_enabled: true` to backfill complete hours from ESBN at their actual times.
+- The app gives each meter its own statistic and uses Recorder's existing history to preserve
+  cumulative totals across reinstalls and ESBN corrections.
+- After the first import, replace **ESBN Import Total** with **ESBN Hourly Grid Import** in the
+  Energy dashboard to avoid double-counting. Export and tariff cost continue through MQTT.
+  See [Opt-in hourly grid import](DOCS.md#opt-in-hourly-grid-import) for setup and rollback.
+
 ## 0.4.7
 
 - Restore HDF downloads by using the new ESB Networks consumption endpoint after the previous endpoint began returning HTTP 405.

@@ -40,7 +40,7 @@ def test_app_metadata() -> None:
     config = load_yaml(ROOT / "esbn-to-mqtt" / "config.yaml")
 
     assert config["name"] == "esbn-to-mqtt"
-    assert config["version"] == "0.4.7"
+    assert config["version"] == "0.5.0"
     assert config["slug"] == "esbn_to_mqtt"
     assert config["stage"] == "stable"
     assert config["options"]["mqtt_host"] == "core-mosquitto"
@@ -50,6 +50,9 @@ def test_app_metadata() -> None:
     assert "two_captcha_api_key" not in config["options"]
     assert config["options"]["two_captcha_timeout_seconds"] == 120
     assert config["options"]["tariff_enabled"] is False
+    assert config["homeassistant_api"] is True
+    assert config["options"]["hourly_statistics_enabled"] is False
+    assert config["schema"]["hourly_statistics_enabled"] == "bool?"
     assert config["options"]["tariff_currency"] == "EUR"
     assert config["options"]["tariff_day_rate_eur_per_kwh"] == 0.0
     assert config["schema"]["tariff_enabled"] == "bool"
@@ -73,7 +76,7 @@ def test_release_version_metadata_stays_in_sync() -> None:
         project = tomllib.load(handle)["project"]
     dockerfile = (ROOT / "esbn-to-mqtt" / "Dockerfile").read_text(encoding="utf-8")
 
-    assert config["version"] == "0.4.7"
+    assert config["version"] == "0.5.0"
     assert project["version"] == config["version"]
     assert __version__ == config["version"]
     assert f"ARG BUILD_VERSION={config['version']}" in dockerfile

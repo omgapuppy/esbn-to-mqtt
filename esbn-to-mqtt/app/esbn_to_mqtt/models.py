@@ -57,6 +57,7 @@ class AppConfig:
     log_level: str
     captcha: CaptchaConfig = CaptchaConfig()
     tariff: TariffConfig = TariffConfig()
+    hourly_statistics_enabled: bool = False
 
     @property
     def mprn(self) -> str:

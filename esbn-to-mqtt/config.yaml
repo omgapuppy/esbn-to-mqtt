@@ -1,5 +1,5 @@
 name: esbn-to-mqtt
-version: "0.4.7"
+version: "0.5.0"
 slug: esbn_to_mqtt
 description: Publish ESB Networks smart meter HDF data to Home Assistant MQTT sensors
 url: https://github.com/omgapuppy/esbn-to-mqtt/tree/main/esbn-to-mqtt
@@ -8,6 +8,7 @@ arch:
   - amd64
 startup: application
 boot: auto
+homeassistant_api: true
 init: false
 stage: stable
 services:
@@ -26,6 +27,7 @@ options:
   captcha_solver: disabled
   two_captcha_timeout_seconds: 120
   tariff_enabled: false
+  hourly_statistics_enabled: false
   tariff_day_rate_eur_per_kwh: 0.0
   tariff_night_rate_eur_per_kwh: 0.0
   tariff_peak_rate_eur_per_kwh: 0.0
@@ -46,6 +48,7 @@ schema:
   two_captcha_api_key: password?
   two_captcha_timeout_seconds: int(30,600)
   tariff_enabled: bool
+  hourly_statistics_enabled: bool?
   tariff_day_rate_eur_per_kwh: float(0,)
   tariff_night_rate_eur_per_kwh: float(0,)
   tariff_peak_rate_eur_per_kwh: float(0,)

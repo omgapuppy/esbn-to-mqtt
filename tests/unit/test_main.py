@@ -14,6 +14,7 @@ from esbn_to_mqtt.hdf import HdfParseError
 from esbn_to_mqtt.models import AppConfig, CaptchaConfig, EsbnCredentials, MqttConfig, TariffConfig
 from esbn_to_mqtt.mqtt import MqttMessage, MqttPublishError, build_availability_message
 from esbn_to_mqtt.state import AccumulatorState
+from esbn_to_mqtt.statistics import StatisticsError
 
 
 def app_config() -> AppConfig:
@@ -47,13 +48,16 @@ class SuccessfulConnectionPublisher:
         return
 
 
+@pytest.mark.parametrize("hourly_statistics_enabled", [False, True])
 def test_run_once_publishes_derived_metrics_and_diagnostics(
+    hourly_statistics_enabled: bool,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
     config = replace(
         app_config(),
+        hourly_statistics_enabled=hourly_statistics_enabled,
         tariff=TariffConfig(
             enabled=True,
             day_rate=0.30,
@@ -101,8 +105,23 @@ def test_run_once_publishes_derived_metrics_and_diagnostics(
         Mock(return_value=datetime(2026, 5, 16, 20, 0, tzinfo=UTC)),
     )
 
+    def recorder_unavailable(*args: object) -> None:
+        assert published_messages
+        assert (tmp_path / "state.json").is_file()
+        raise StatisticsError("Recorder unavailable")
+
+    sync = Mock(side_effect=recorder_unavailable)
+    monkeypatch.setattr(main, "sync_hourly_import", sync)
+
     with caplog.at_level("INFO"):
         main.run_once(tmp_path / "options.json", tmp_path)
+
+    if hourly_statistics_enabled:
+        sync.assert_called_once()
+        assert sync.call_args.args[1] == config.mprn
+        assert "Hourly statistics import skipped: Recorder unavailable" in caplog.text
+    else:
+        sync.assert_not_called()
 
     state_message = next(
         message
