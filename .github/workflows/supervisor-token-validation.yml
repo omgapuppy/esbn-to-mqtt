@@ -1,0 +1,31 @@
+name: Supervisor token startup smoke test
+on:
+  push:
+    branches: [fix/supervisor-token-validation]
+permissions:
+  contents: read
+jobs:
+  startup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify published and patched images through their S6 entrypoints
+        run: |
+          set -eu
+          stub="$RUNNER_TEMP/python3-stub"
+          cat > "$stub" <<'EOF'
+          #!/bin/sh
+          if [ "${SUPERVISOR_TOKEN:-}" = "startup-smoke-test" ]; then
+            echo "startup-smoke-token-present"
+          else
+            echo "startup-smoke-token-missing"
+          fi
+          EOF
+          chmod +x "$stub"
+          run_image() {
+            docker run --rm -e SUPERVISOR_TOKEN=startup-smoke-test \
+              -v "$stub:/usr/local/bin/python3:ro" "$1"
+          }
+          run_image ghcr.io/omgapuppy/esbn-to-mqtt:0.5.0 | grep -x startup-smoke-token-missing
+          docker build -t esbn-token-candidate esbn-to-mqtt
+          run_image esbn-token-candidate | grep -x startup-smoke-token-present
